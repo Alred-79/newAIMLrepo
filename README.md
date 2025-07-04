@@ -1,2 +1,3 @@
 # ai-ml
-Data prep, model training &amp; RLHF
+
+Data cleaning, model fine-tuning, and active‐learning pipeline.
