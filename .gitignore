@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Environments
+.env
+.venv/
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (keep structure, not content)
+ai-engine/data/raw/*.pdf
+ai-engine/data/raw/*.docx
+
+# Docker
+pgdata/
+redisdata/
+
+# Markdown docs (patch notes, setup guides, etc.)
+*.md
+
