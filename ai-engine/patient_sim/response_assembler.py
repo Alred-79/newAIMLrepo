@@ -284,7 +284,31 @@ async def assemble_response(
         # OOB does NOT increment exchange_count
         # The student message is NOT added to history
         return result
+    
+    system_prompt, user_prompt = build_profile_aware_prompt(
+            student_message=student_message,
+            patient_profile=scenario.patient_profile.dict(),
+        )
+    llm_response = await llm_completion(
+            model=Config.HEAVYWEIGHT_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=Config.HEAVYWEIGHT_TEMPERATURE,
+            max_tokens=Config.HEAVYWEIGHT_MAX_TOKENS,
+        )
 
+    if llm_response:
+        result["patient_response"] = llm_response
+        result["match_method"] = "ollama_direct"
+    state.exchange_count += 1
+    state.conversation_history.append(
+        Message(role="student", content=student_message)
+    )
+    state.conversation_history.append(
+        Message(role="patient", content=result["patient_response"])
+    )
+    _update_timed_readiness(scenario, state)
+    return result
     # ── Acknowledgment (from LLM fallback — ambiguous message classified as ack) ──
     if match_result.is_acknowledgment:
         timed_node = _get_next_ready_timed_node(scenario, state)

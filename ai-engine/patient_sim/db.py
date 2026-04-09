@@ -139,6 +139,7 @@ def query_similar(
                 )
 
             rows = cur.fetchall()
+            # Score filter: ignore very low similarity noise (threshold 0.3)
             return [
                 {
                     "node_id": row[0],
@@ -146,6 +147,7 @@ def query_similar(
                     "similarity": float(row[2]),
                 }
                 for row in rows
+                if float(row[2]) >= 0.3
             ]
     finally:
         conn.close()
@@ -178,6 +180,7 @@ def query_similar_all(
                 (query_embedding, scenario_id, query_embedding, top_k),
             )
             rows = cur.fetchall()
+            # Score filter: ignore very low similarity noise (threshold 0.3)
             return [
                 {
                     "node_id": row[0],
@@ -185,10 +188,10 @@ def query_similar_all(
                     "similarity": float(row[2]),
                 }
                 for row in rows
+                if float(row[2]) >= 0.3
             ]
     finally:
         conn.close()
-
 
 
 def query_bm25(
@@ -232,6 +235,8 @@ def query_bm25(
     )
 
     for phrase, score in scored_phrases:
+        if score <= 0:
+            continue
         node_id = scenario_index.bm25_phrase_to_node[phrase]
         if node_id in excluded:
             continue
