@@ -20,7 +20,11 @@ from shared.question_gate import classify_message
 from shared.oob_detector import detect_oob
 from patient_sim.node_matcher import match_content_node
 from patient_sim.wrapper_generator import generate_wrapper, generate_timed_wrapper
-from patient_sim.prompts import get_essential_leadin
+from patient_sim.prompts import (
+    get_essential_leadin,
+    build_profile_aware_prompt,
+)
+from shared.llm import llm_completion
 
 # Patient responses for tangential or unclear student messages.
 # Used instead of per-scenario tangential_deflection so the patient
@@ -338,20 +342,40 @@ async def assemble_response(
 
     # ── Tangential ──
     if match_result.is_tangential:
-        tangential_response = random.choice(TANGENTIAL_RESPONSES)
-        result["patient_response"] = tangential_response
-        result["match_method"] = "tangential"
+        # Call generative LLM as fallback for missing nodes
+        system_prompt, user_prompt = build_profile_aware_prompt(
+            student_message=student_message,
+            patient_profile=scenario.patient_profile.dict(),
+        )
+        llm_response = await llm_completion(
+            model=Config.HEAVYWEIGHT_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=Config.HEAVYWEIGHT_TEMPERATURE,
+            max_tokens=Config.HEAVYWEIGHT_MAX_TOKENS,
+        )
+
+        if llm_response:
+            result["patient_response"] = llm_response
+            result["match_method"] = "ollama_direct"
+        else:
+            # Fallback to canned responses if LLM fails
+            tangential_response = random.choice(TANGENTIAL_RESPONSES)
+            result["patient_response"] = tangential_response
+            result["match_method"] = "tangential"
+
         state.exchange_count += 1
         state.conversation_history.append(
             Message(role="student", content=student_message)
         )
         state.conversation_history.append(
-            Message(role="patient", content=tangential_response)
+            Message(role="patient", content=result["patient_response"])
         )
+        _update_timed_readiness(scenario, state)
         return result
 
     # ── Matched node ──
-    matched_node = match_result.matched_node
+    matched_node = match_result.matched_node  
     if matched_node is None:
         # Safety fallback — shouldn't happen
         fallback_response = random.choice(TANGENTIAL_RESPONSES)

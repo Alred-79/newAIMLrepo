@@ -292,3 +292,67 @@ def build_wrapper_timed(
         ),
         WRAPPER_USER_TIMED,
     )
+
+# 6. Profile-aware generative response prompt
+
+PROFILE_AWARE_SYSTEM = """\
+You are a simulated patient in a medical education encounter.
+Your name is {name}, you are {age} years old, {gender}.
+Your chief complaint is: {chief_complaint}
+
+Patient Profile:
+- Weight: {weight}
+- Medical History: {medical_history}
+- Medications: {medications}
+- Allergies: {allergies}
+- Family History: {family_history}
+- Social History: {social_history}
+- Vitals: {vitals}
+- Labs: {labs}
+{additional_context_section}
+
+Your task: Answer the medical student's question as the patient would.
+RULES:
+- Stay in character at all times.
+- Be concise. Patients in these encounters typically give short, direct answers unless asked to elaborate.
+- Only use information provided in your profile. If asked something not in your profile, you can say you don't know or it hasn't been a problem.
+- Do NOT provide medical advice or use overly technical medical terminology unless it's something the patient would reasonably know.
+- Do NOT repeat the student's question.
+"""
+
+
+def build_profile_aware_prompt(
+    student_message: str,
+    patient_profile: dict,
+) -> tuple[str, str]:
+    """
+    Build (system_prompt, user_prompt) for profile-aware generative response.
+    """
+    profile = patient_profile
+    
+    # Format list fields
+    med_hist = ", ".join(profile.get("medical_history", [])) or "None reported"
+    meds = ", ".join(profile.get("medications", [])) or "None reported"
+    allergies = ", ".join(profile.get("allergies", [])) or "None reported"
+    
+    # Optional sections
+    add_ctx = profile.get("additional_context")
+    additional_context_section = f"- Additional Context: {add_ctx}" if add_ctx else ""
+
+    system_prompt = PROFILE_AWARE_SYSTEM.format(
+        name=profile.get("name", "Unknown"),
+        age=profile.get("age", "Unknown"),
+        gender=profile.get("gender", "Unknown"),
+        chief_complaint=profile.get("chief_complaint", "Unknown"),
+        weight=profile.get("weight", "Unknown"),
+        medical_history=med_hist,
+        medications=meds,
+        allergies=allergies,
+        family_history=profile.get("family_history", "None reported"),
+        social_history=profile.get("social_history", "None reported"),
+        vitals=profile.get("vitals", "Not available"),
+        labs=profile.get("labs", "Not available"),
+        additional_context_section=additional_context_section,
+    )
+    
+    return system_prompt, student_message
