@@ -23,6 +23,7 @@ from patient_sim.wrapper_generator import generate_wrapper, generate_timed_wrapp
 from patient_sim.prompts import (
     get_essential_leadin,
     build_profile_aware_prompt,
+    build_relevance_verification_prompt,
 )
 from shared.llm import llm_completion
 
@@ -137,7 +138,7 @@ def get_overdue_essential_nodes(
             and node.fire_after_exchange is not None
             and state.exchange_count >= node.fire_after_exchange
         ):
-            overdue.append(node)
+                overdue.append(node)
     return overdue
 
 
@@ -284,62 +285,30 @@ async def assemble_response(
         # OOB does NOT increment exchange_count
         # The student message is NOT added to history
         return result
-    
-    system_prompt, user_prompt = build_profile_aware_prompt(
-            student_message=student_message,
+
+    # ── LLM-based Verification Gate ──
+    # Verify that a matched node actually addresses the question.
+    if match_result.matched_node and message_type in ["question", "ambiguous"]:
+        verify_sys, verify_user = build_relevance_verification_prompt(
+            question=student_message,
+            answer=match_result.matched_node.canonical_content,
+            answer_topic=match_result.matched_node.topic,
             patient_profile=scenario.patient_profile.dict(),
         )
-    llm_response = await llm_completion(
-            model=Config.HEAVYWEIGHT_MODEL,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=Config.HEAVYWEIGHT_TEMPERATURE,
-            max_tokens=Config.HEAVYWEIGHT_MAX_TOKENS,
+        verification = await llm_completion(
+            model=Config.LIGHTWEIGHT_MODEL,
+            system_prompt=verify_sys,
+            user_prompt=verify_user,
+            temperature=0.0,
+            max_tokens=5,
         )
-
-    if llm_response:
-        result["patient_response"] = llm_response
-        result["match_method"] = "ollama_direct"
-    state.exchange_count += 1
-    state.conversation_history.append(
-        Message(role="student", content=student_message)
-    )
-    state.conversation_history.append(
-        Message(role="patient", content=result["patient_response"])
-    )
-    _update_timed_readiness(scenario, state)
-    return result
-    # ── Acknowledgment (from LLM fallback — ambiguous message classified as ack) ──
-    if match_result.is_acknowledgment:
-        timed_node = _get_next_ready_timed_node(scenario, state)
-        if timed_node:
-            # Use timed wrapper to signal patient-initiated topic change
-            timed_wrapper = await generate_timed_wrapper(
-                patient_profile=scenario.patient_profile,
-                wrapper_history=state.wrapper_history,
-            )
-            state.wrapper_history.append(timed_wrapper)
-            if len(state.wrapper_history) > 3:
-                state.wrapper_history = state.wrapper_history[-3:]
-
-            result["patient_response"] = f"{timed_wrapper} {timed_node.canonical_content}"
-            result["match_method"] = "timed"
-            result["nodes_delivered"].append(timed_node.node_id)
-            _deliver_timed_node(timed_node, state)
-            state.exchange_count += 1
-        else:
-            ack_response = random.choice(scenario.acknowledgment_responses)
-            result["patient_response"] = ack_response
-            result["match_method"] = "acknowledgment"
-            # Do NOT increment exchange_count
-
-        state.conversation_history.append(
-            Message(role="student", content=student_message)
-        )
-        state.conversation_history.append(
-            Message(role="patient", content=result["patient_response"])
-        )
-        return result
+        print(f"Verification: {verification}")
+        print(f"Answer: {match_result.matched_node.canonical_content}")
+        
+        if verification and "NO" in verification.upper():
+            match_result.is_tangential = True
+            match_result.matched_node = None
+            match_result.match_method = "llm_rejected"
 
     # ── Re-ask ──
     if match_result.is_re_ask and match_result.re_ask_node:
@@ -370,6 +339,8 @@ async def assemble_response(
         system_prompt, user_prompt = build_profile_aware_prompt(
             student_message=student_message,
             patient_profile=scenario.patient_profile.dict(),
+            scenario_category=scenario.category.value,
+            bias_direction=scenario.bias_direction.value,
         )
         llm_response = await llm_completion(
             model=Config.HEAVYWEIGHT_MODEL,
@@ -482,5 +453,5 @@ async def assemble_response(
 
     # Update timed readiness (new nodes may have become ready)
     _update_timed_readiness(scenario, state)
-
+    
     return result

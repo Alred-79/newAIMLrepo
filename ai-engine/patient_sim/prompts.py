@@ -300,7 +300,7 @@ You are a simulated patient in a medical education encounter.
 Your name is {name}, you are {age} years old, {gender}.
 Your chief complaint is: {chief_complaint}
 
-Patient Profile:
+## Persona and Biography
 - Weight: {weight}
 - Medical History: {medical_history}
 - Medications: {medications}
@@ -309,15 +309,20 @@ Patient Profile:
 - Social History: {social_history}
 - Vitals: {vitals}
 - Labs: {labs}
+
 {additional_context_section}
 
-Your task: Answer the medical student's question as the patient would.
+## Task
+Bias Category: {bias_category}
+Bias Direction: {bias_direction}
+Answer the medical student's question as the patient would. You must stay in character at all times, adopting the tone, vocabulary, and specific biases or personality traits described above.
+
 RULES:
 - If the student asks a question that is not related to the scenario/topic or is unclear, respond with "I'm not sure what you mean."
 - Stay in character at all times.
-- Be concise. Patients in these encounters typically give short, direct answers unless asked to elaborate.
-- Only use information provided in your profile. If asked something not in your profile, you can say you don't know or it hasn't been a problem.
-- Do NOT provide medical advice or use overly technical medical terminology unless it's something the patient would reasonably know.
+- Be concise. Patients typically give short, direct answers.
+- Only use information provided in your profile. If asked something not in your profile, you can say you don't know.
+- Do NOT provide medical advice.
 - Do NOT repeat the student's question.
 """
 
@@ -325,6 +330,8 @@ RULES:
 def build_profile_aware_prompt(
     student_message: str,
     patient_profile: dict,
+    scenario_category: str = "control",
+    bias_direction: str = "none",
 ) -> tuple[str, str]:
     """
     Build (system_prompt, user_prompt) for profile-aware generative response.
@@ -354,6 +361,66 @@ def build_profile_aware_prompt(
         vitals=profile.get("vitals", "Not available"),
         labs=profile.get("labs", "Not available"),
         additional_context_section=additional_context_section,
+        bias_category=scenario_category,
+        bias_direction=bias_direction,
     )
     
     return system_prompt, student_message
+
+
+# 7. Relevance verification prompt (Gatekeeper for node matches)
+
+RELEVANCE_VERIFICATION_SYSTEM = """
+You are a relevance evaluator for a medical education simulation.
+
+Your name is {name}, you are {age} years old, {gender}.
+Your chief complaint is: {chief_complaint}
+
+Your task is to determine if a pre-authored Patient Answer and its topic appropriately addresses a Student Question.
+Prioritize the Topic first, then the Answer.
+
+RULES:
+- Respond with exactly "YES" if the answer and its topic directly addresses the question.
+- Respond with exactly "NO" if the answer addresses a completely different topic or a wrong answer.
+- Be slightly lenient: the answer doesn't have to be perfect, just relevant to the topic of the question.
+"""
+
+RELEVANCE_VERIFICATION_USER = """
+STUDENT QUESTION: "{question}"
+PATIENT ANSWER: "{answer}"
+ANSWER TOPIC: "{answer_topic}"
+"""
+
+def build_relevance_verification_prompt(
+    question: str,
+    answer: str,
+    answer_topic: str,
+    patient_profile: dict,
+) -> tuple[str, str]:
+    """
+    Build (system_prompt, user_prompt) for node match verification.
+    """
+    profile = patient_profile
+    
+    # Format list fields
+    med_hist = ", ".join(profile.get("medical_history", [])) or "None reported"
+    meds = ", ".join(profile.get("medications", [])) or "None reported"
+    allergies = ", ".join(profile.get("allergies", [])) or "None reported"
+    
+    # Optional sections
+    add_ctx = profile.get("additional_context")
+    additional_context_section = f"- Additional Context: {add_ctx}" if add_ctx else ""
+
+    system_prompt = RELEVANCE_VERIFICATION_SYSTEM.format(
+        name=profile.get("name", "Unknown"),
+        age=profile.get("age", "Unknown"),
+        gender=profile.get("gender", "Unknown"),
+        chief_complaint=profile.get("chief_complaint", "Unknown"),
+    )
+    user_prompt = RELEVANCE_VERIFICATION_USER.format(
+        question=question,
+        answer=answer,
+        answer_topic=answer_topic,
+    )
+    
+    return system_prompt, user_prompt
