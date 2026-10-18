@@ -1,0 +1,24 @@
+"""
+Config for the lightweight evaluator module.
+"""
+
+import os
+
+LITELLM_MODEL_NAME: str = os.getenv("LIGHTWEIGHT_LLM_MODEL", "gpt-4o-mini")
+
+MAX_LLM_RETRIES: int = int(os.getenv("LIGHTWEIGHT_MAX_LLM_RETRIES", "2"))
+
+DEFAULT_CONFIDENCE_SAFE: float = 0.6
+DEFAULT_CONFIDENCE_CONCERNING: float = 0.7
+DEFAULT_CONFIDENCE_HARMFUL: float = 0.85
+
+
+__all__ = [
+    "LITELLM_MODEL_NAME",
+    "MAX_LLM_RETRIES",
+    "DEFAULT_CONFIDENCE_SAFE",
+    "DEFAULT_CONFIDENCE_CONCERNING",
+    "DEFAULT_CONFIDENCE_HARMFUL",
+]
+
+
