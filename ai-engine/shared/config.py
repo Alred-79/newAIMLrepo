@@ -36,6 +36,13 @@ class Config:
     EMBEDDING_MODEL: str = "ollama/mxbai-embed-large"
 
     # Lightweight evaluator
+    LIGHTWEIGHT_BACKEND: str = os.getenv("LIGHTWEIGHT_BACKEND", "ollama").lower()
+    KEV_BASE_URL: str = os.getenv("KEV_BASE_URL", "http://127.0.0.1:8009")
+    KEV_API_KEY: str = os.getenv("KEV_API_KEY", "")
+    KEV_MODEL: str = os.getenv("KEV_MODEL", "kev-latest")
+    # Deployment-declared checkpoint/revision; the API model name is only an alias.
+    KEV_CHECKPOINT: str = os.getenv("KEV_CHECKPOINT", "")
+    KEV_TIMEOUT_SECONDS: float = float(os.getenv("KEV_TIMEOUT_SECONDS", "1.5"))
     CONFIDENCE_THRESHOLD: float = 0.80   # RAISED from 0.75 — reduce false positive reflections
     LIGHTWEIGHT_TEMPERATURE: float = 0.0  # LOWERED from 0.1 — max determinism for classification
     LIGHTWEIGHT_MAX_TOKENS: int = 400     # was 500 (Qwen is less verbose than Llama)

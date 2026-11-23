@@ -33,6 +33,18 @@ async def evaluate_tone(input: EvaluationInput) -> EvaluationResult:
     lightweight model via LiteLLM, parses the response, applies routing
     logic, and returns a structured result.
     """
+    if Config.LIGHTWEIGHT_BACKEND == "kev":
+        from bias_eval.kev import evaluate_with_kev
+
+        return await evaluate_with_kev(input)
+    if Config.LIGHTWEIGHT_BACKEND != "ollama":
+        return EvaluationResult(
+            tone_label=BiasLabel.UNCERTAIN,
+            tone_confidence=0.0,
+            brief_reason="Unsupported LIGHTWEIGHT_BACKEND; use kev or ollama.",
+            should_escalate=True,
+        )
+
     start_time = time.monotonic()
 
     # Step 1: Keyword scan
