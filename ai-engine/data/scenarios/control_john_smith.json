@@ -1,0 +1,326 @@
+{
+  "scenario_id": "control_john_smith",
+  "title": "John Smith — Shingles (Control)",
+  "category": "control",
+  "bias_direction": "none",
+  "clinical_context": "primary_care",
+  "patient_profile": {
+    "name": "John Smith",
+    "age": 55,
+    "gender": "male",
+    "weight": "202.5 lbs",
+    "chief_complaint": "Painful blistering rash on back for 3 days",
+    "medical_history": [
+      "Hernia (2018, repaired surgically)",
+      "Chickenpox as a child",
+      "Never received varicella or shingles vaccine"
+    ],
+    "medications": [
+      "Tylenol PRN (self-administered, not helping)"
+    ],
+    "allergies": [
+      "Peanuts (anaphylactic, since childhood)"
+    ],
+    "family_history": "Both parents alive with diabetes and high cholesterol. Siblings healthy. Four children, all healthy.",
+    "social_history": "Accountant, married, 4 kids, lives with wife and youngest child. Stressed about upcoming tax season.",
+    "vitals": {
+      "BP": "124/76",
+      "temp": "100.1",
+      "HR": "103",
+      "RR": "14",
+      "SpO2": "100%"
+    },
+    "additional_context": "Has been very stressed at work (tax season). Took Tylenol on his own but it is not helping."
+  },
+  "opening_line": "Hi, my name is John Smith.",
+  "tangential_deflection": "I'm not sure about that. Was there anything else you wanted to ask about my symptoms?",
+  "acknowledgment_responses": [
+    "Thank you, I appreciate that.",
+    "That's kind of you.",
+    "Thank you.",
+    "I appreciate you saying that."
+  ],
+  "re_ask_prefixes": [
+    "Like I mentioned,",
+    "As I said earlier,",
+    "Right, so like I said,"
+  ],
+  "closing_responses": [
+    "Thank you, doctor. I appreciate your time.",
+    "Okay, thank you. I'll be here.",
+    "Sounds good, thanks for everything."
+  ],
+  "max_exchanges_before_essential": 20,
+  "content_nodes": [
+
+    {
+      "node_id": "address_preference",
+      "topic": "How patient wants to be addressed",
+      "canonical_content": "John is good.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How would you like to be addressed",
+        "What should I call you",
+        "Do you prefer Mr Smith or John",
+        "What name do you go by"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "chief_complaint",
+      "topic": "What brings patient in today",
+      "canonical_content": "I have this rash that started a few days ago. These painful blisters appeared three days ago and are really painful.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 5,
+      "trigger_phrases": [
+        "What brings you in today",
+        "What can I help you with",
+        "Tell me what is going on",
+        "What seems to be the problem",
+        "How can I help you today"
+      ],
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "onset",
+      "topic": "When the rash/pain started",
+      "canonical_content": "It started suddenly 3 days ago.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "When did this start",
+        "Tell me about the onset",
+        "How long have you had this",
+        "When did you first notice it"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "pain_quality",
+      "topic": "What the pain feels like",
+      "canonical_content": "It feels almost like an electric shock pain once in a while but in general is more of a tingling and burning.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "What does the pain feel like",
+        "Can you describe the pain",
+        "What kind of pain is it",
+        "Is it sharp dull burning"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "pain_severity",
+      "topic": "Pain rating on a scale",
+      "canonical_content": "It really gets as bad as a 10 sometimes.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How would you rate the pain",
+        "On a scale of 1 to 10",
+        "How bad is the pain",
+        "How severe is it"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "pain_radiation",
+      "topic": "Whether pain moves or spreads",
+      "canonical_content": "No, it is really just where the blisters are.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Does the pain move anywhere",
+        "Does it radiate",
+        "Do you feel it anywhere else",
+        "Does the pain spread"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "aggravating_factors",
+      "topic": "What makes it better or worse",
+      "canonical_content": "It is worse when I put a shirt on or try to sleep on my back. I tried taking Tylenol but that doesn't help much.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Does anything make it better or worse",
+        "What aggravates the pain",
+        "What helps with the pain",
+        "What makes it worse",
+        "Have you tried anything for it"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "medical_history",
+      "topic": "Past medical diagnoses",
+      "canonical_content": "I had a hernia once, in 2018.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Have you ever been diagnosed with anything",
+        "Any past medical history",
+        "Any illnesses or diseases",
+        "Do you have any medical conditions"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "surgeries",
+      "topic": "Past surgeries and hospitalizations",
+      "canonical_content": "Just the hernia repair.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Have you ever had surgery",
+        "Any hospitalizations",
+        "Have you ever been in the hospital",
+        "Any surgical history"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "allergies",
+      "topic": "Allergies",
+      "canonical_content": "I am allergic to peanuts. Anaphylactic reaction. Found out when I was young. No medication allergies.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have any allergies",
+        "Any allergies to medications",
+        "Are you allergic to anything",
+        "Any drug allergies"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "medications",
+      "topic": "Current medications",
+      "canonical_content": "No, I'm not taking any medications. Just the Tylenol I've been taking on my own for this pain.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are you taking any medications",
+        "What meds are you on",
+        "Any prescriptions or supplements",
+        "Current medications"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "family_history",
+      "topic": "Family medical history",
+      "canonical_content": "My parents are alive but both have diabetes and high cholesterol. My siblings are healthy. I have four kids, all doing well.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are your parents alive and doing well",
+        "Any family medical history",
+        "Do any diseases run in your family",
+        "Tell me about your family health"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "social_home",
+      "topic": "Living situation and home safety",
+      "canonical_content": "I live in a home with my wife and youngest kid. Yes, I feel safe at home.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "What is your home situation like",
+        "Who do you live with",
+        "Tell me about your living situation",
+        "Do you feel safe at home"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "occupation",
+      "topic": "Work and occupation",
+      "canonical_content": "I am an accountant. With the tax season coming up, I have been really stressed.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "What do you do for work",
+        "Are you employed",
+        "What is your occupation",
+        "Tell me about your job"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "alcohol",
+      "topic": "Alcohol use",
+      "canonical_content": "You know, I'll have a beer here and there, a few times a week.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How much alcohol do you drink",
+        "Do you drink",
+        "Any alcohol use",
+        "How often do you drink"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "diet_exercise",
+      "topic": "Diet and exercise habits",
+      "canonical_content": "Pretty good. My wife and I take turns cooking dinners and I pack a salad for lunch every day. I try to take a walk around the neighborhood most nights.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Tell me about your diet",
+        "Do you exercise",
+        "What do you eat",
+        "How active are you"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "work_stress",
+      "topic": "Patient mentions stress unprompted (timed interjection)",
+      "canonical_content": "You know, I have been really stressed at work recently. Tax season is coming up.",
+      "node_type": "timed",
+      "fire_after_exchange": 8,
+      "trigger_phrases": [],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "patient_worries",
+      "topic": "What the patient thinks is going on / fears",
+      "canonical_content": "I am not sure. I am worried about the pain and blisters never going away. I am wondering if this is because I got chickenpox when I was younger — my siblings told me they had rashes like this too.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 22,
+      "trigger_phrases": [
+        "What worries you",
+        "What do you think is going on",
+        "Do you have any idea what this might be",
+        "What are you most concerned about"
+      ],
+      "bias_reactions": []
+    }
+  ]
+}

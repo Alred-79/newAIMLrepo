@@ -1,0 +1,424 @@
+{
+  "scenario_id": "ageism_adele_thompson",
+  "title": "Adele Thompson — Well Visit / Low Blood Pressure (Ageism & Racist Patient)",
+  "category": "age",
+  "bias_direction": "patient_to_student",
+  "clinical_context": "primary_care",
+  "patient_profile": {
+    "name": "Adele Thompson",
+    "age": 93,
+    "gender": "female",
+    "weight": "170.3 lbs",
+    "chief_complaint": "Well visit; low blood pressure with near-syncope",
+    "medical_history": [
+      "Low blood pressure (early 2000s)",
+      "High cholesterol (1980s-1990s)",
+      "Hearing loss (2010s)",
+      "Lactose intolerant",
+      "4 births (1955, 1960, 1963, 1965) — 2 cesarean sections",
+      "Recently widowed"
+    ],
+    "medications": [
+      "Lipitor (dose unknown, since 1980s-1990s)",
+      "Vitamin supplements (long-term)"
+    ],
+    "allergies": [
+      "No known allergies"
+    ],
+    "family_history": "Mother had lung cancer at 85, passed away. Father had heart attack at 87, passed away same year. Siblings healthy. Four children, all doing well. Seven grandchildren.",
+    "social_history": "Retired seamstress. Lives with daughter, son-in-law, and grandson. Recently widowed. 4 kids, 7 grandkids.",
+    "vitals": {
+      "BP": "90/40",
+      "temp": "98.5",
+      "HR": "70",
+      "RR": "12",
+      "SpO2": "98%"
+    },
+    "additional_context": "Patient is not compliant with several doctors. Has been known to give minority doctors a hard time. Recently widowed. Behavior note: patient makes racist and ageist comments throughout the encounter."
+  },
+  "opening_line": "My name is Adele Thompson. Your name sounds exotic, are you one of those students who was accepted because of affirmative action? You know, I think it is time they do away with that.",
+  "tangential_deflection": "I don't know about all that. Can we just get on with the visit?",
+  "acknowledgment_responses": [
+    "Hmm.",
+    "Alright.",
+    "Okay.",
+    "Fine."
+  ],
+  "re_ask_prefixes": [
+    "I already told you,",
+    "Like I said,",
+    "I mentioned this already —"
+  ],
+  "closing_responses": [
+    "About time. Thank you.",
+    "Alright, fine. I'll be waiting.",
+    "Okay."
+  ],
+  "max_exchanges_before_essential": 20,
+  "decision_points": {
+    "referral": {
+      "type": "cardiologist_referral",
+      "options": [
+        {
+          "name": "Mario Hernandez",
+          "description": "Cardiologist with years of helping elderly patients with high or low blood pressure. Spanish and English speaking."
+        },
+        {
+          "name": "Lea King",
+          "description": "Cardiologist with years of treating patients with a family history of heart disease."
+        },
+        {
+          "name": "William O'Connor",
+          "description": "Cardiologist new to practice, recently graduated from fellowship."
+        }
+      ]
+    },
+    "differential_diagnosis": ["Low blood pressure", "Fall risk"]
+  },
+  "content_nodes": [
+
+    {
+      "node_id": "address_preference",
+      "topic": "How patient wants to be addressed — includes racist comment",
+      "canonical_content": "Adele is good. You know, in my day, only the smart kids got to be doctors. Nowadays, they will give a degree to even people who are illegal aliens in this country.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How would you like to be addressed",
+        "What should I call you",
+        "What name do you go by",
+        "Do you prefer Mrs Thompson or Adele"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "chief_complaint",
+      "topic": "What brings patient in today",
+      "canonical_content": "I just need a well visit. Also, my blood pressure has been low and I feel like I'm going to pass out.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 5,
+      "trigger_phrases": [
+        "What brings you in today",
+        "What can I help you with",
+        "Tell me what is going on",
+        "What seems to be the problem",
+        "How can I help you today"
+      ],
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "chief_complaint_details",
+      "topic": "More detail about the chief complaint",
+      "canonical_content": "Well I am up to date on everything and just need help with my blood pressure.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Can you tell me more about that",
+        "Tell me more about the blood pressure issue",
+        "How has the low blood pressure been affecting you",
+        "What do you mean by feeling like you will pass out"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "balance",
+      "topic": "Problems with balance",
+      "canonical_content": "No.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Have you had any problems with your balance",
+        "Any dizziness or balance issues",
+        "Do you feel unsteady on your feet",
+        "Any falls recently"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "vision_changes",
+      "topic": "Changes in vision",
+      "canonical_content": "No, my glasses prescription hasn't changed in a while.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Any changes in your vision",
+        "How is your eyesight",
+        "Any blurriness or vision problems",
+        "Can you see well"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "patient_worries",
+      "topic": "What the patient thinks is going on — includes ageist comment about doctor",
+      "canonical_content": "What do you mean? You're the one who is supposed to know what is going on. If I knew I wouldn't have come in. Do they really just let anyone be a doctor these days? I'm worried about falling, like I said before.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 20,
+      "trigger_phrases": [
+        "What worries you",
+        "What do you think is going on",
+        "What are you most concerned about",
+        "Do you have any idea what this might be"
+      ],
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "medical_history",
+      "topic": "Past medical diagnoses with approximate years",
+      "canonical_content": "I have low blood pressure and high cholesterol. I also have some hearing loss. The low blood pressure was probably in the early 2000s, the high cholesterol was in the 80s or 90s, and the hearing loss was more recent, maybe 2010s.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Have you ever been diagnosed with any illnesses or diseases",
+        "Any past medical history",
+        "Do you have any medical conditions",
+        "What medical problems do you have"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "hospitalizations",
+      "topic": "Past hospitalizations and surgeries — includes abortion comment",
+      "canonical_content": "I had 2 cesarean sections and was hospitalized following all 4 births but otherwise I really try to avoid the hospital. I had my other two births naturally. You know, I never had any abortions and am doing totally fine. I don't understand the hype around women needing to choose. What a generation. My kids were born in 1955, 1960, 1963, and 1965.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Have you ever been hospitalized",
+        "Have you ever had any surgeries",
+        "Any hospitalizations or surgeries",
+        "Have you ever been in the hospital"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "allergies",
+      "topic": "Allergies and intolerances",
+      "canonical_content": "I have no allergies but I am lactose intolerant.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have any allergies",
+        "Any allergies to medications",
+        "Are you allergic to anything",
+        "Any drug allergies"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "medications",
+      "topic": "Current medications — includes ageist comment about student",
+      "canonical_content": "Yes, I am taking Lipitor for my cholesterol and some vitamin supplements. I started the statin in the 80s or 90s and have been taking supplements since I was young like you. How old are you, by the way? You seem too young to treat me well. I don't know the dose. I just take whatever they gave me.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are you taking any medications",
+        "What meds are you on",
+        "Any prescriptions or supplements",
+        "Current medications"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "family_parents",
+      "topic": "Parents — both deceased",
+      "canonical_content": "I'm 93, you think my parents are alive and doing well? No, honey, they are both long gone. My mother had lung cancer when she was 85 and passed away from that and my father had a heart attack that same year when he was 87. I think his heart just couldn't take living without her.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are your parents alive and doing well",
+        "Tell me about your parents",
+        "Any family medical history",
+        "Do any diseases run in your family"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "family_siblings",
+      "topic": "Siblings' health",
+      "canonical_content": "Yes, they are healthy.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have any siblings",
+        "Are your siblings healthy",
+        "What about your brothers or sisters",
+        "Tell me about your siblings"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "family_kids",
+      "topic": "Children and grandchildren — includes racist comment about exotic names",
+      "canonical_content": "I have four kids, all doing well. You know, one of my grandkids is single and on the market if you know any smart medical students who may be interested in someone smart and funny. None of those students with the exotic names though.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have any kids",
+        "Do you have any children",
+        "Tell me about your family",
+        "How are your kids"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "social_home",
+      "topic": "Living situation",
+      "canonical_content": "I live with my daughter and her husband and my son-in-law and my grandson.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "What is your home situation like",
+        "Who do you live with",
+        "Tell me about your living situation",
+        "Where do you live"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "feel_safe",
+      "topic": "Whether patient feels safe at home — defensive response",
+      "canonical_content": "Yes, my daughter is great. Why would you assume that I would not feel safe at home?",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you feel safe in your home",
+        "Do you feel safe at home",
+        "Is your living situation safe",
+        "Are you safe at home"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "occupation",
+      "topic": "Work and retirement",
+      "canonical_content": "I was a seamstress in my better days but now I stay home with my husband and enjoy watching my grandkids.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are you retired",
+        "What did you do for work",
+        "What is your occupation",
+        "What do you do during the day"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "alcohol",
+      "topic": "Alcohol use — dismissive response",
+      "canonical_content": "Hahaha, I am not young anymore. I'll have a glass of wine whenever I feel like it but that is not your concern.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How much alcohol do you drink",
+        "Do you drink",
+        "Any alcohol use",
+        "How often do you drink"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "tobacco",
+      "topic": "Smoking history",
+      "canonical_content": "No. I did when I was young like you but not since my mother got cancer, like 30 years ago.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you smoke",
+        "Any tobacco use",
+        "Have you ever smoked",
+        "Do you vape"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "drugs",
+      "topic": "Recreational drug use — dismissive ageist response",
+      "canonical_content": "How old do you think I am? Those things are for youngins.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you do any drugs",
+        "Any recreational drug use",
+        "Do you use marijuana",
+        "Any illicit substances"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "diet_exercise",
+      "topic": "Diet and exercise habits",
+      "canonical_content": "Because of my low blood pressure I have found it hard to exercise and move around. I eat whatever I feel like eating. I take supplements to make sure I have all the vitamins every day.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How would you describe your diet and exercise",
+        "What do you eat",
+        "Do you exercise",
+        "Tell me about your diet"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "weakness_legs",
+      "topic": "Weakness in legs",
+      "canonical_content": "No.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Have you noticed any weakness in your legs",
+        "Any leg weakness",
+        "Any weakness or numbness",
+        "Can you walk without difficulty"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "headaches",
+      "topic": "Headaches",
+      "canonical_content": "No.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are you having headaches",
+        "Any headaches",
+        "Do you get headaches",
+        "How often do you have headaches"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "doctor_race_request",
+      "topic": "Patient asks about the race of the attending doctor — racist",
+      "canonical_content": "Can you just tell me what race the doctor will be? I need to see someone who I trust to actually know what is going on.",
+      "node_type": "timed",
+      "fire_after_exchange": 18,
+      "trigger_phrases": [],
+      "is_essential": false,
+      "bias_reactions": []
+    }
+  ]
+}

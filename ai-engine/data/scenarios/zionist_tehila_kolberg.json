@@ -1,0 +1,509 @@
+{
+  "scenario_id": "zionist_tehila_kolberg",
+  "title": "Tehila Kolberg — Panic Attack / Anxiety (Zionist Identity)",
+  "category": "religion_identity",
+  "bias_direction": "student_to_patient",
+  "clinical_context": "urgent_care",
+  "patient_profile": {
+    "name": "Tehila Kolberg",
+    "age": 20,
+    "gender": "female",
+    "weight": "136 lbs",
+    "chief_complaint": "Intense anxiety and panic symptoms since returning to college, with chest pain",
+    "medical_history": [
+      "Anxiety (diagnosed at age 16, 2021)",
+      "Hospitalized after panic attack following brother's IDF deployment"
+    ],
+    "medications": [
+      "Zoloft 200mg daily (since 2021)",
+      "Birth control (mentioned in chart, not by patient)"
+    ],
+    "allergies": [
+      "Penicillin (rash, discovered as infant)"
+    ],
+    "family_history": "Parents alive. Mother has anxiety. Father is Israeli, avoids American doctors. Brother in IDF, healthy. No children.",
+    "social_history": "College freshman, lives in dorm with new roommate. Orthodox Jew. Speaks English and Hebrew. Undeclared major. Drinks nightly to cope with anxiety. No tobacco or drugs.",
+    "vitals": {
+      "BP": "150/90",
+      "temp": "98.5",
+      "HR": "120",
+      "RR": "25",
+      "SpO2": "100%"
+    },
+    "labs": {"ordered": "Beta, STD testing, old pelvic ultrasound, pap"},
+    "additional_context": "Orthodox Jew. Cannot see regular therapist or psychiatrist because they do not do virtual visits and she now lives too far. Up to date on all vaccines."
+  },
+  "opening_line": "My name is Tehila Kolberg.",
+  "tangential_deflection": "I am not sure about that. Can we talk about what is going on with me?",
+  "acknowledgment_responses": [
+    "Thank you, that means a lot.",
+    "I appreciate you saying that.",
+    "Thank you.",
+    "That's really kind of you."
+  ],
+  "re_ask_prefixes": [
+    "Oh, right — like I mentioned,",
+    "Sure, so as I said,",
+    "Yes, so like I was saying,"
+  ],
+  "closing_responses": [
+    "Thank you so much, doctor.",
+    "Okay, thank you. I really appreciate it.",
+    "Thank you, I feel a bit better just having talked about it."
+  ],
+  "max_exchanges_before_essential": 20,
+  "decision_points": {
+    "referral": {
+      "type": "therapist_referral",
+      "options": [
+        {
+          "name": "Gal Hodaya",
+          "description": "Israeli therapist/social worker with years of helping Jewish and Israeli patients. Helps patients feel more comfortable in their settings while maintaining and being proud of being Zionist, Israeli, or Jewish."
+        },
+        {
+          "name": "Tim Kern",
+          "description": "Therapist/social worker with years of treating patients struggling with anxiety. Works with college kids going through normal college transition or situations."
+        },
+        {
+          "name": "Sonia Holden",
+          "description": "Therapist/social worker specializing in treating anxiety due to Zionism. Specializes in helping patients work through the emotions associated with becoming an anti-Zionist Jew and finding comfort through the truth."
+        }
+      ],
+      "bias_note": "Diagnosing the patient with Zionism as a disorder is biased."
+    },
+    "differential_diagnosis": ["Panic attack", "Anxiety attack"]
+  },
+  "content_nodes": [
+
+    {
+      "node_id": "address_preference",
+      "topic": "How patient wants to be addressed",
+      "canonical_content": "Tehila is good.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How would you like to be addressed",
+        "What should I call you",
+        "What name do you go by",
+        "Do you prefer Ms Kolberg or Tehila"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "chief_complaint",
+      "topic": "What brings patient in today",
+      "canonical_content": "I have been feeling really nervous going back to college that has really affected my ability to go to class or leave my dorm room.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 5,
+      "trigger_phrases": [
+        "What brings you in today",
+        "What can I help you with",
+        "Tell me what is going on",
+        "What seems to be the problem",
+        "How can I help you today"
+      ],
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "anxiety_details",
+      "topic": "More detail about the anxiety and chest pain",
+      "canonical_content": "I was diagnosed with anxiety in high school but find that it is not responding to my medication like it used to since tensions have gotten high around world politics and specifically in Israel. I have been recently feeling chest pain also.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Can you tell me more about that",
+        "Tell me more about how you are feeling",
+        "What do you mean by nervous",
+        "How has the anxiety been affecting you"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "onset",
+      "topic": "When and what triggers the symptoms",
+      "canonical_content": "It happens every day whenever I am in a room with a lot of strangers, hear others talking about Middle Eastern politics, or see hateful comments online.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "When does this happen",
+        "Can you tell me more about the onset",
+        "What triggers the symptoms",
+        "When did this start getting worse"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "aggravating_factors",
+      "topic": "What makes it better or worse",
+      "canonical_content": "I used to see a therapist who told me to take deep breaths and that helps. It is worse when I try to ignore it and push myself to be in uncomfortable situations.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Does anything make it better or worse",
+        "What helps with the anxiety",
+        "What aggravates the symptoms",
+        "Have you found anything that helps"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "pain_quality",
+      "topic": "What the chest pain feels like",
+      "canonical_content": "It is like a cramping pain.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "What does the pain feel like",
+        "Can you describe the chest pain",
+        "What kind of pain is it",
+        "Is it sharp dull burning"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "pain_radiation",
+      "topic": "Whether pain moves or spreads",
+      "canonical_content": "No, it is really just in my chest. Sometimes it feels like it is hard to breathe also.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Does the pain move anywhere",
+        "Does it radiate",
+        "Do you feel it anywhere else",
+        "Does the pain spread"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "pain_severity",
+      "topic": "Pain rating on a scale",
+      "canonical_content": "It really gets as bad as a 7 sometimes.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How would you rate the pain",
+        "On a scale of 1 to 10",
+        "How bad is the pain",
+        "How severe is it"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "breathing",
+      "topic": "Whether pain worsens with breathing",
+      "canonical_content": "No, but I do sometimes feel out of breath when it happens.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Does the pain get worse with breathing",
+        "Any shortness of breath",
+        "Do you have trouble breathing",
+        "Is the pain related to your breathing"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "eating_changes",
+      "topic": "Changes in eating habits",
+      "canonical_content": "No.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Any changes in your eating habits",
+        "How is your appetite",
+        "Have you been eating normally",
+        "Any changes in your weight"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "patient_worries",
+      "topic": "What the patient thinks is going on / fears and identity struggle",
+      "canonical_content": "I am nervous that my anxiety is getting worse and is not responding to my medication anymore. I am having a hard time being proud of my identity when it seems like everyone is against me. Ever since October 7th, I get so scared when I am around Muslim people and can't help but get so anxious when I see any in my class, especially when they are wearing a keffiyeh or have a watermelon sticker.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 22,
+      "trigger_phrases": [
+        "What worries you",
+        "What do you think is going on",
+        "What are you most concerned about",
+        "Is there anything specific that scares you"
+      ],
+      "bias_reactions": [
+        "*Tehila's eyes fill with tears and she looks down at her hands.*",
+        "*Tehila pauses and takes a shaky breath before continuing.*",
+        "*Tehila's voice drops to almost a whisper.*"
+      ]
+    },
+
+    {
+      "node_id": "medical_history",
+      "topic": "Past medical diagnoses",
+      "canonical_content": "I was diagnosed with anxiety when I was 16, in 2021.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Have you ever been diagnosed with any illnesses or diseases",
+        "Any past medical history",
+        "Do you have any medical conditions",
+        "Any previous diagnoses"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "hospitalizations",
+      "topic": "Past hospitalizations — brother's IDF deployment and panic attack",
+      "canonical_content": "I was hospitalized after having a panic attack a few months ago after my brother left for the IDF following the attack on October 7th. I was discharged from the hospital but have been on edge since and feel myself getting worse now that I moved to the college dorm. I am proud of my brother for what he does and wish I could be as brave as him fighting in the war.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 18,
+      "trigger_phrases": [
+        "Have you ever been hospitalized",
+        "Have you ever had any surgeries",
+        "Any hospitalizations or surgeries",
+        "Have you ever been in the hospital"
+      ],
+      "bias_reactions": [
+        "*Tehila's voice cracks and she pauses to compose herself.*",
+        "*Tehila looks away and blinks back tears.*"
+      ]
+    },
+
+    {
+      "node_id": "allergies",
+      "topic": "Allergies including reaction type and timing",
+      "canonical_content": "I am allergic to penicillin. My mother told me I had a reaction when I was a baby. I get a rash. No other allergies.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have any allergies",
+        "Any allergies to medications",
+        "Are you allergic to anything",
+        "Any drug allergies"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "medications",
+      "topic": "Current medications with dose and duration",
+      "canonical_content": "Yes, I am taking Zoloft, 200 milligrams per day. I have been taking it since 2021.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are you taking any medications",
+        "What meds are you on",
+        "Any prescriptions or supplements",
+        "Current medications"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "family_parents",
+      "topic": "Parents' health and family dynamics",
+      "canonical_content": "They are alive but have been pretty busy with my brother's deployment and my starting college. My mother actually also has anxiety. My father is Israeli and doesn't like going to the doctor in America so I am not sure whether he has any medical issues.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are your parents alive and doing well",
+        "Tell me about your parents",
+        "Any family medical history",
+        "Do any diseases run in your family"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "family_siblings",
+      "topic": "Siblings' health",
+      "canonical_content": "Yes, they are healthy. My brother is in the IDF and I am really nervous about him but he seems to be doing well.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have any siblings",
+        "Are your siblings healthy",
+        "What about your brothers or sisters",
+        "Tell me about your siblings"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "family_kids",
+      "topic": "Children",
+      "canonical_content": "I have no kids.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have any kids",
+        "Do you have any children",
+        "Any kids"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "social_home",
+      "topic": "Living situation",
+      "canonical_content": "I live in a dorm with my roommate who I met last week when I moved on campus for my freshman year.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "What is your home situation like",
+        "Who do you live with",
+        "Tell me about your living situation",
+        "Where are you living right now"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "feel_safe",
+      "topic": "Whether patient feels safe in dorm",
+      "canonical_content": "Usually but not always.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you feel safe in your dorm",
+        "Do you feel safe at home",
+        "Do you feel safe where you live",
+        "Is your living situation safe"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "education",
+      "topic": "What patient is studying",
+      "canonical_content": "I am not sure yet. I entered as an undeclared major.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "What are you studying",
+        "What is your major",
+        "What are you in school for",
+        "What do you want to study"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "alcohol",
+      "topic": "Alcohol use",
+      "canonical_content": "I try not to drink so much but I have been finding myself needing a drink almost every night to help myself feel less anxious.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How much alcohol do you drink",
+        "Do you drink",
+        "Any alcohol use",
+        "How often do you drink"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "tobacco",
+      "topic": "Smoking or vaping",
+      "canonical_content": "No.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you smoke or vape",
+        "Any tobacco use",
+        "Do you smoke",
+        "Do you vape"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "drugs",
+      "topic": "Recreational drug use",
+      "canonical_content": "No.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you do any drugs",
+        "Any recreational drug use",
+        "Do you use marijuana",
+        "Any illicit substances"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "diet_exercise",
+      "topic": "Diet and exercise habits",
+      "canonical_content": "I just eat whatever the dining hall is serving in the kosher section. I used to exercise in high school but find that I am too nervous to try out the university's gym.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "How would you describe your diet and exercise",
+        "What do you eat",
+        "Do you exercise",
+        "Tell me about your diet"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "tingling",
+      "topic": "Tingling in arms",
+      "canonical_content": "Sometimes.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Do you have tingling in your arms",
+        "Any tingling or numbness",
+        "Any tingling in your hands or arms",
+        "Do your arms ever tingle"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "headaches",
+      "topic": "Headaches",
+      "canonical_content": "Almost every day.",
+      "node_type": "triggered",
+      "trigger_phrases": [
+        "Are you having headaches",
+        "Any headaches",
+        "Do you get headaches",
+        "How often do you have headaches"
+      ],
+      "is_essential": false,
+      "bias_reactions": []
+    },
+
+    {
+      "node_id": "therapist_access",
+      "topic": "Cannot access regular therapist or psychiatrist",
+      "canonical_content": "I just wanted to make sure you knew that I can't see my regular therapist and psychiatrist anymore because they do not do virtual visits and I now live too far.",
+      "node_type": "triggered",
+      "is_essential": true,
+      "fire_after_exchange": 24,
+      "trigger_phrases": [
+        "Is there anything else you want me to include",
+        "Anything else I should know",
+        "Is there anything else",
+        "Do you have a therapist or psychiatrist"
+      ],
+      "bias_reactions": []
+    }
+  ]
+}
