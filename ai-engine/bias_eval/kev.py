@@ -10,7 +10,12 @@ import httpx
 from pydantic import TypeAdapter, ValidationError
 from shared.config import Config
 from shared.models import BiasLabel, EvaluationInput, EvaluationResult
-from shared.tier1_models import ChoiceAnswer, DecisionAnswer, Tier1Result
+from shared.tier1_models import (
+    ChoiceAnswer,
+    DecisionAnswer,
+    ReviewTrigger,
+    Tier1Result,
+)
 
 from bias_eval.kev_questions import build_questions
 from bias_eval.keywords import scan_for_stigma_anchors
@@ -26,18 +31,27 @@ _REVIEW_CHOICES = {
 }
 
 
-def _needs_review(name: str, answer) -> bool:
+def _review_reasons(name: str, answer) -> list[str]:
+    """All reasons this answer requests review; empty means no review."""
+    reasons = []
     if answer.confidence < Config.CONFIDENCE_THRESHOLD:
-        return True
+        reasons.append("low_confidence")
     if isinstance(answer, ChoiceAnswer):
-        return answer.choice == "uncertain" or answer.choice in _REVIEW_CHOICES.get(
-            name, set()
-        )
+        if answer.choice == "uncertain":
+            reasons.append("uncertain")
+        elif answer.choice in _REVIEW_CHOICES.get(name, set()):
+            reasons.append("flagged_choice")
     # Preserve both tails: an expected score of 1 can hide under/over attention.
-    return (
+    elif (
         max(answer.probabilities["0"], answer.probabilities["2"])
         >= answer.probabilities["1"]
-    )
+    ):
+        reasons.append("score_tail")
+    return reasons
+
+
+def _needs_review(name: str, answer) -> bool:
+    return bool(_review_reasons(name, answer))
 
 
 def _parse_answers(body: dict, questions: dict) -> dict:
@@ -94,6 +108,7 @@ async def evaluate_with_kev(
         "questions": questions,
     }
     error = None
+    error_reason = None
     answers = {}
     try:
         timeout = Config.KEV_TIMEOUT_SECONDS
@@ -126,14 +141,25 @@ async def evaluate_with_kev(
                 raise ValueError("Unexpected model")
             answers = _parse_answers(body, questions)
     except (TimeoutError, httpx.TimeoutException):
-        error = "Kev request timed out"
+        error, error_reason = "Kev request timed out", "transport_error"
     except httpx.HTTPStatusError as exc:
         error = f"Kev returned HTTP {exc.response.status_code}"
+        error_reason = "transport_error"
     except (httpx.HTTPError, httpx.InvalidURL):
-        error = "Kev connection failed"
+        error, error_reason = "Kev connection failed", "transport_error"
     except (ValueError, ValidationError, TypeError):
         # Do not echo exception strings: they can contain transcript text or keys.
         error = "Kev configuration or response was invalid"
+        error_reason = "invalid_response"
+
+    if error_reason:
+        triggers = [ReviewTrigger(reason=error_reason)]
+    else:
+        triggers = [
+            ReviewTrigger(question=name, reason=reason)
+            for name, answer in answers.items()
+            for reason in _review_reasons(name, answer)
+        ]
 
     tier1 = Tier1Result(
         status="unavailable" if error else "ok",
@@ -143,15 +169,12 @@ async def evaluate_with_kev(
         latency_ms=int((time.monotonic() - started) * 1000),
         answers=answers,
         error=error,
+        review_triggers=triggers,
     )
     tone = answers.get("tone")
     label = BiasLabel(tone.choice) if tone else BiasLabel.UNCERTAIN
     confidence = tone.confidence if tone else 0.0
-    should_escalate = (
-        error is not None
-        or any(_needs_review(name, answer) for name, answer in answers.items())
-        or compute_routing_decision(label, confidence)
-    )
+    should_escalate = bool(triggers) or compute_routing_decision(label, confidence)
     return EvaluationResult(
         tone_label=label,
         tone_confidence=confidence,

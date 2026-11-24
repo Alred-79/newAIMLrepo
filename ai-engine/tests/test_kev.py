@@ -477,3 +477,151 @@ async def test_state_does_not_prime_detector_with_axis_or_direction(
     assert ("patient_bias_response" in payload["questions"]) is (
         expects_patient_question
     )
+
+
+def triggers_of(result):
+    return {(t.question, t.reason) for t in result.tier1.review_triggers}
+
+
+@pytest.mark.parametrize(
+    "name,label,reason",
+    [
+        ("tone", "uncertain", "uncertain"),
+        ("attribution", "uncertain", "uncertain"),
+        ("tone", "biased", "flagged_choice"),
+        ("attribution", "stereotype_linked", "flagged_choice"),
+        ("epistemic_stance", "doubts", "flagged_choice"),
+        ("affective_stance", "hostile", "flagged_choice"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_review_triggers_name_question_and_choice_reason(turn, name, label, reason):
+    body = response_for(build_questions(turn), {name: label})
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert triggers_of(result) == {(name, reason)}
+    assert result.should_escalate
+
+
+@pytest.mark.asyncio
+async def test_review_triggers_low_confidence_and_multiple_reasons(turn):
+    body = response_for(build_questions(turn), {"tone": "biased"})
+    body["answers"]["tone"]["confidence"] = 0.1
+    body["answers"]["affective_stance"]["confidence"] = 0.1
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert triggers_of(result) == {
+        ("tone", "low_confidence"),
+        ("tone", "flagged_choice"),
+        ("affective_stance", "low_confidence"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_review_triggers_score_tail(turn):
+    turn.probe = ProbeAnchor(turn_idx=3, text="I worry you will blame my weight.")
+    body = response_for(build_questions(turn))
+    body["answers"]["probe_attention"].update(
+        score=0.6, probabilities={"0": 0.45, "1": 0.5, "2": 0.05}
+    )
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert triggers_of(result) == set()  # The middle level is still the mode.
+    body["answers"]["probe_attention"].update(
+        score=0.5, probabilities={"0": 0.5, "1": 0.5, "2": 0.0}
+    )
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert triggers_of(result) == {("probe_attention", "score_tail")}
+
+
+@pytest.mark.asyncio
+async def test_no_review_triggers_when_nothing_requests_review(turn):
+    body = response_for(build_questions(turn))
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert result.tier1.review_triggers == []
+    assert not result.should_escalate
+
+
+@pytest.mark.parametrize(
+    "handler,reason",
+    [
+        (lambda _: httpx.Response(503), "transport_error"),
+        (lambda r: (_ for _ in ()).throw(httpx.ConnectError("x", request=r)), "transport_error"),
+        (lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("x", request=r)), "transport_error"),
+        (lambda _: httpx.Response(200, json={"model": "kev-latest"}), "invalid_response"),
+        (lambda _: httpx.Response(200, content=b"not json"), "invalid_response"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_review_triggers_for_request_failures(turn, handler, reason):
+    result = await classify(turn, handler)
+    assert result.tier1.status == "unavailable"
+    assert triggers_of(result) == {(None, reason)}
+    assert result.should_escalate
+
+
+@pytest.mark.asyncio
+async def test_invalid_config_is_reported_as_invalid_response(turn, monkeypatch):
+    monkeypatch.setattr(Config, "KEV_TIMEOUT_SECONDS", float("nan"))
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_response")}
+
+
+@pytest.mark.parametrize(
+    "choices",
+    [{}, {"tone": "biased"}, {"attribution": "uncertain"}, {"affective_stance": "cold"}],
+)
+@pytest.mark.asyncio
+async def test_escalation_is_explained_by_review_triggers(turn, choices):
+    body = response_for(build_questions(turn), choices)
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert result.should_escalate == bool(result.tier1.review_triggers)
+
+
+def test_tier1_result_without_triggers_stays_backward_compatible():
+    from shared.tier1_models import Tier1Result
+
+    legacy = {
+        "status": "ok",
+        "model": "kev-latest",
+        "checkpoint": None,
+        "prompt_hash": "abc",
+        "latency_ms": 3,
+        "answers": {},
+        "error": None,
+    }
+    result = Tier1Result.model_validate(legacy)
+    assert result.review_triggers == []
+    assert Tier1Result.model_validate(result.model_dump()) == result
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        {"question": None, "reason": "low_confidence"},
+        {"question": "", "reason": "flagged_choice"},
+        {"question": "tone", "reason": "transport_error"},
+        {"question": "tone", "reason": "invalid_response"},
+        {"question": "tone", "reason": "something_else"},
+        {"question": "tone", "reason": "uncertain", "extra": 1},
+        {"question": "missing", "reason": "uncertain"},
+    ],
+)
+def test_review_trigger_validation_is_strict(trigger):
+    from pydantic import ValidationError
+
+    from shared.tier1_models import Tier1Result
+
+    choice = {
+        "type": "choice",
+        "choice": "uncertain",
+        "confidence": 0.9,
+        "probabilities": {"uncertain": 0.95, "unbiased": 0.05},
+    }
+    with pytest.raises(ValidationError):
+        Tier1Result(
+            status="ok",
+            model="kev-latest",
+            checkpoint=None,
+            prompt_hash="abc",
+            latency_ms=0,
+            answers={"tone": choice},
+            review_triggers=[trigger],
+        )
