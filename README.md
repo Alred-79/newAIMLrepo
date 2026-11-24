@@ -125,6 +125,21 @@ problematic tone, attribution, stance, or anchored attention also requests revie
 this routing decision does not combine their probabilities. The timeout
 bounds the whole request; it is configurable and is not a latency guarantee.
 
+### Latency and deployment
+
+- The default `KEV_TIMEOUT_SECONDS=1.5` is a ceiling, not an expected latency. It
+  is chosen to fit inside the synchronous encounter lane (about 2 s per turn); the
+  Tier-1 target remains sub-200 ms, and no latency has been measured here.
+- A scale-to-zero or otherwise cold Kev deployment can take longer than the timeout
+  to answer its first request. That turn then returns `uncertain`, an unavailable
+  Tier-1 result and `should_escalate=True` with a `transport_error` review trigger.
+  This is by design (abstain, never guess), not a fault to retry around.
+- When student reflection is deferred to the end of the encounter, the recommended
+  setup runs Tier-1 in the asynchronous post-encounter lane with a longer
+  `KEV_TIMEOUT_SECONDS`, so cold starts do not turn into escalations.
+- `KEV_CHECKPOINT` is declared by the operator and recorded as-is. The client does
+  not verify which weights the server actually loaded.
+
 Results include a question-bank SHA-256 hash, model alias, declared checkpoint,
 and elapsed milliseconds. `brief_reason` is a fixed status message, not generated
 evidence. Raw Kev signals do not directly trigger the simulator's student-facing
