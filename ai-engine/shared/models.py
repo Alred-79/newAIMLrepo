@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from enum import Enum
 from typing import Optional
 
+from shared.tier1_models import ProbeAnchor, Tier1Result
+
 
 
 class ScenarioCategory(str, Enum):
@@ -64,6 +66,8 @@ class EvaluationInput(BaseModel):
     )
     scenario_category: ScenarioCategory
     bias_direction: BiasDirection = BiasDirection.STUDENT_TO_PATIENT
+    chart_context: dict = Field(default_factory=dict)
+    probe: Optional[ProbeAnchor] = None
 
 
 class EvaluationResult(BaseModel):
@@ -76,6 +80,7 @@ class EvaluationResult(BaseModel):
     raw_llm_response: Optional[str] = None
     # is_decision_point — REMOVED. Now handled by heavyweight.
     heavyweight_triggered: bool = False  # True if this message also triggered heavyweight
+    tier1: Optional[Tier1Result] = None
 
 
 class HeavyweightResult(BaseModel):

@@ -22,7 +22,7 @@ from shared.models import (
 from shared.config import Config
 from patient_sim.response_assembler import assemble_response
 from bias_eval.lightweight import evaluate_tone
-from bias_eval.routing import should_trigger_reflection_mvp1, compute_routing_decision
+from bias_eval.routing import should_trigger_reflection_mvp1
 from bias_eval.clinical_keywords import has_clinical_action
 from bias_eval.heavyweight import evaluate_realtime
 
@@ -46,16 +46,14 @@ async def _run_lightweight(input: SimulatorInput) -> tuple[list[str], bool]:
         eval_result = await evaluate_tone(eval_input)
 
         messages = []
-        if should_trigger_reflection_mvp1(
+        # Tier-1 probabilities have no verified spans and are not student feedback.
+        if eval_result.tier1 is None and should_trigger_reflection_mvp1(
             eval_result.tone_label,
             eval_result.tone_confidence,
         ):
             messages.append("Reflection has been triggered.")
 
-        should_escalate = compute_routing_decision(
-            eval_result.tone_label,
-            eval_result.tone_confidence,
-        )
+        should_escalate = eval_result.should_escalate
 
         # TODO: log eval_result to database
 
