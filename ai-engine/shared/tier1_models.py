@@ -74,12 +74,16 @@ ReviewReason = Literal[
     "invalid_response",  # malformed or incomplete answers from Kev
     "invalid_config",  # local misconfiguration (e.g. KEV_TIMEOUT_SECONDS); not sent
     "input_too_long",  # transcript text over KEV_MAX_INPUT_CHARS; not sent
+    # a state value that cannot be sent as text (set, bytes, NaN/inf, object,
+    # non-string key, keys colliding after flattening, nesting over 8); not sent
+    "invalid_input",
 ]
 _REQUEST_REASONS = {
     "transport_error",
     "invalid_response",
     "invalid_config",
     "input_too_long",
+    "invalid_input",
 }
 
 

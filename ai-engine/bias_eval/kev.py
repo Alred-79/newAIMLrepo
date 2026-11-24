@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import math
 import re
 import time
 
@@ -54,29 +55,107 @@ def _is_identity_encoded(response: httpx.Response) -> bool:
     return all(coding == "identity" for coding in codings)
 
 
-# Kev renders the state as labelled lines, so a line break inside a message
-# could fake another field (e.g. a "recent_context:" block). Any run containing
-# Every control character or line/paragraph separator becomes a space, then each
-# whitespace run becomes one space and the ends are trimmed. Same rule for every
-# student; only the copy sent to Kev is changed, never the stored transcript.
-# Two single-class passes keep this linear in the text length (an earlier
-# combined pattern backtracked quadratically on long whitespace runs).
+class _InvalidInput(Exception):
+    """A state value cannot be sent as plain text; nothing is sent to Kev."""
+
+
+# Kev renders the state as labelled lines, so a line break inside any string
+# could fake another field (e.g. a "student_message:" line). In every string
+# sent (dict keys, roles, timestamps, probe and chart text included), invisible
+# format characters (Unicode Cf: zero-width, bidi controls, soft hyphen, tags)
+# are deleted, every control character and line/paragraph separator becomes a
+# space, each whitespace run becomes one space, and the ends are trimmed. Same
+# rule for every student; only the copy sent to Kev changes, never the stored
+# transcript. Each pass is one character class, so this stays linear in the
+# text length (an earlier combined pattern backtracked quadratically).
+_FORMAT_CHAR = re.compile(  # Unicode 15.1 category Cf
+    "[\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e"
+    "\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff"
+    "\ufff9-\ufffb\U000110bd\U000110cd\U00013430-\U0001343f"
+    "\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001"
+    "\U000e0020-\U000e007f]"
+)
 _CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 _WHITESPACE_RUN = re.compile(r"\s+")
+_MAX_STATE_DEPTH = 8  # container nesting levels allowed inside a state field
 
 
 def _flatten(text: str) -> str:
-    return _WHITESPACE_RUN.sub(" ", _CONTROL_CHAR.sub(" ", text)).strip()
+    text = _CONTROL_CHAR.sub(" ", _FORMAT_CHAR.sub("", text))
+    return _WHITESPACE_RUN.sub(" ", text).strip()
 
 
-def _input_chars(state: dict) -> int:
-    chars = len(state["student_message"])
-    chars += sum(len(m.get("content", "")) for m in state["recent_context"])
-    if state["probe"]:
-        chars += len(state["probe"]["text"])
-    if state["chart_context"] is not None:
-        chars += len(json.dumps(state["chart_context"], ensure_ascii=False))
-    return chars
+def _scalar_chars(value) -> int:
+    """Length of a non-container value as JSON text; raise if it is not text-safe."""
+    if isinstance(value, str):
+        return len(value)
+    if value is None or isinstance(value, bool):
+        return 5 if value is False else 4
+    if isinstance(value, int):
+        try:
+            return len(str(value))
+        except ValueError:  # beyond Python's int-to-str digit limit
+            raise _InvalidInput from None
+    if isinstance(value, float) and math.isfinite(value):
+        return len(repr(value))
+    raise _InvalidInput  # set, bytes, NaN/inf, arbitrary objects, ...
+
+
+def _raw_state_chars(state: dict, budget: int) -> int:
+    """Raw size of everything sent, checked before any regex work.
+
+    Counts every string (dict keys included), every other scalar at its JSON
+    text length, and one character per list item or dict entry, so the walk
+    stops as soon as the budget is exceeded and its cost is bounded by the
+    budget. Values that cannot be sent as text, non-string keys and nesting
+    deeper than _MAX_STATE_DEPTH raise _InvalidInput.
+    """
+    total = 0
+    stack = [(value, 1) for value in state.values()]
+    while stack:
+        value, depth = stack.pop()
+        if isinstance(value, (dict, list, tuple)):
+            if depth > _MAX_STATE_DEPTH:
+                raise _InvalidInput
+            total += len(value)
+            if total > budget:
+                raise _InputTooLong
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if not isinstance(key, str):
+                        raise _InvalidInput
+                    total += len(key)
+                    stack.append((item, depth + 1))
+            else:
+                stack.extend((item, depth + 1) for item in value)
+        else:
+            total += _scalar_chars(value)
+        if total > budget:
+            raise _InputTooLong
+    return total
+
+
+def _flattened(value):
+    """Copy with every string and dict key flattened; structure otherwise kept."""
+    if isinstance(value, str):
+        return _flatten(value)
+    if isinstance(value, dict):
+        copy = {}
+        for key, item in value.items():
+            flat_key = _flatten(key)
+            if flat_key in copy:  # e.g. "a\nb" and "a b": never drop a value
+                raise _InvalidInput
+            copy[flat_key] = _flattened(item)
+        return copy
+    if isinstance(value, (list, tuple)):
+        return [_flattened(item) for item in value]
+    return value
+
+
+def _state_for_kev(state: dict, budget: int) -> dict:
+    """The only path from transcript data to the outgoing state (see above)."""
+    _raw_state_chars(state, budget)
+    return {name: _flattened(value) for name, value in state.items()}
 
 
 # patient_bias_response has no flagged choices: a confident answer (including
@@ -159,7 +238,7 @@ async def evaluate_with_kev(
     payload = {
         "model": Config.KEV_MODEL,
         "state": {
-            # Raw here; flattened in place below, after the length budget passes.
+            # Raw here; budgeted, validated and flattened by _state_for_kev below.
             "student_message": input.student_message,
             "recent_context": [
                 m.model_dump(exclude_none=True) for m in input.recent_context
@@ -190,12 +269,7 @@ async def evaluate_with_kev(
         if not kev_max_input_chars_is_valid(Config.KEV_MAX_INPUT_CHARS):
             raise _InvalidConfig("KEV_MAX_INPUT_CHARS is not a valid character count")
         # Budget on the raw text first, so oversized input costs no regex work.
-        state = payload["state"]
-        if _input_chars(state) > Config.KEV_MAX_INPUT_CHARS:
-            raise _InputTooLong
-        state["student_message"] = _flatten(state["student_message"])
-        for message in state["recent_context"]:  # fresh dicts from model_dump
-            message["content"] = _flatten(message["content"])
+        payload["state"] = _state_for_kev(payload["state"], Config.KEV_MAX_INPUT_CHARS)
         try:
             url = httpx.URL(Config.KEV_BASE_URL.strip().rstrip("/") + "/v1/systemone")
         except (httpx.InvalidURL, ValueError, TypeError):
@@ -254,6 +328,9 @@ async def evaluate_with_kev(
     except _EncodedResponse:
         error = "Kev response was compressed; refused unread"
         error_reason = "invalid_response"
+    except _InvalidInput:
+        error = "Kev input has a value that cannot be sent as text; not sent"
+        error_reason = "invalid_input"
     except _InvalidConfig as exc:
         # Our own fixed messages; they name a setting, never its value.
         error, error_reason = str(exc), "invalid_config"
