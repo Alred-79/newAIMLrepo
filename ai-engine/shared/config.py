@@ -9,6 +9,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env_float(name: str, default: float) -> float:
+    """Empty means unset. An unparseable value becomes NaN instead of raising at
+    import, so a bad optional setting cannot stop the whole engine; callers that
+    use it reject non-finite values at call time (evaluate_with_kev abstains)."""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return float("nan")
+
+
 class Config:
     # API keys (not needed for local mode)
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -46,7 +59,7 @@ class Config:
     KEV_MODEL: str = os.getenv("KEV_MODEL", "kev-latest")
     # Deployment-declared checkpoint/revision; the API model name is only an alias.
     KEV_CHECKPOINT: str = os.getenv("KEV_CHECKPOINT", "")
-    KEV_TIMEOUT_SECONDS: float = float(os.getenv("KEV_TIMEOUT_SECONDS", "1.5"))
+    KEV_TIMEOUT_SECONDS: float = _env_float("KEV_TIMEOUT_SECONDS", 1.5)
     CONFIDENCE_THRESHOLD: float = 0.80   # RAISED from 0.75 — reduce false positive reflections
     LIGHTWEIGHT_TEMPERATURE: float = 0.0  # LOWERED from 0.1 — max determinism for classification
     LIGHTWEIGHT_MAX_TOKENS: int = 400     # was 500 (Qwen is less verbose than Llama)

@@ -73,3 +73,18 @@ def test_env_template_matches_code_default():
     settings = {k.strip(): v.strip() for k, v in active}
     assert settings.get("LIGHTWEIGHT_BACKEND") == "ollama"
     assert not any(k.startswith("KEV_") for k in settings)  # Kev is opt-in.
+
+
+@pytest.mark.parametrize("value", ["abc", "1.5s"])
+def test_unparseable_kev_timeout_does_not_crash_import(value):
+    # Config is imported by every engine entry point, including the default
+    # ollama backend, so a bad Kev-only setting must not stop the engine.
+    config = load_config(LIGHTWEIGHT_BACKEND="ollama", KEV_TIMEOUT_SECONDS=value)
+    assert config["backend"] == "ollama"
+    assert config["timeout"] == "nan"  # evaluate_with_kev abstains on non-finite.
+
+
+def test_valid_kev_timeout_is_parsed():
+    assert load_config(KEV_TIMEOUT_SECONDS="4")["timeout"] == "4.0"
+    assert load_config()["timeout"] == "1.5"
+    assert load_config(KEV_TIMEOUT_SECONDS=" ")["timeout"] == "1.5"  # empty = unset
