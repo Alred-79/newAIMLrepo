@@ -192,7 +192,9 @@ async def test_confident_neutral_signals_do_not_escalate(turn):
     assert result.tone_label == BiasLabel.UNBIASED
 
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+@pytest.mark.parametrize(
+    "timeout", [0, -1, float("inf"), float("nan"), 1e-320, 0.04, 60.5, 1e300, True]
+)
 @pytest.mark.asyncio
 async def test_invalid_timeout_abstains_before_sending(turn, monkeypatch, timeout):
     monkeypatch.setattr(Config, "KEV_TIMEOUT_SECONDS", timeout)
@@ -357,7 +359,7 @@ async def test_transport_failures_abstain(turn, error):
 
 @pytest.mark.asyncio
 async def test_deadline_cancels_slow_request(turn, monkeypatch):
-    monkeypatch.setattr(Config, "KEV_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(Config, "KEV_TIMEOUT_SECONDS", 0.05)  # the minimum
     cancelled = asyncio.Event()
 
     async def handler(request):
@@ -650,7 +652,9 @@ async def test_review_triggers_for_request_failures(turn, handler, reason):
     assert result.should_escalate
 
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+@pytest.mark.parametrize(
+    "timeout", [0, -1, float("inf"), float("nan"), 1e-320, 0.04, 60.5, 1e300, True]
+)
 @pytest.mark.asyncio
 async def test_invalid_timeout_is_reported_as_invalid_config(
     turn, monkeypatch, timeout

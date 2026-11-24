@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import hashlib
 import json
-import math
 import re
 import time
 
@@ -15,6 +14,7 @@ from shared.config import (
     kev_base_url_is_allowed,
     kev_max_input_chars_is_valid,
     kev_max_response_bytes_is_valid,
+    kev_timeout_is_valid,
 )
 from shared.models import BiasLabel, EvaluationInput, EvaluationResult
 from shared.tier1_models import (
@@ -158,9 +158,11 @@ async def evaluate_with_kev(
     received = False  # whether a response arrived, to attribute unexpected errors
     try:
         timeout = Config.KEV_TIMEOUT_SECONDS
-        if not math.isfinite(timeout) or timeout <= 0:
+        if not kev_timeout_is_valid(timeout):
             # shared.config already warned once at import
-            raise _InvalidConfig("KEV_TIMEOUT_SECONDS is not a finite positive number")
+            raise _InvalidConfig(
+                "KEV_TIMEOUT_SECONDS is not a number between 0.05 and 60 seconds"
+            )
         if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
             raise _InvalidConfig(
                 "KEV_BASE_URL must be https (plain http only to a loopback host)"

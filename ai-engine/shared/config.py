@@ -17,17 +17,29 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-def _env_float(name: str, default: float) -> float:
-    """Empty means unset. An unparseable value becomes NaN instead of raising at
-    import, so a bad optional setting cannot stop the whole engine; callers that
-    use it reject non-finite values at call time (evaluate_with_kev abstains)."""
+# Plain ASCII decimal or scientific notation only. float() alone would also
+# accept underscores ("1_0"), non-ASCII digits, "nan" and "inf".
+_ASCII_DECIMAL = re.compile(
+    r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", re.ASCII
+)
+
+
+def _env_float(name: str, default: float, low: float, high: float) -> float:
+    """Strict finite decimal within [low, high]; empty means unset.
+
+    Anything else becomes NaN instead of raising at import, so a bad optional
+    setting cannot stop the whole engine; callers reject it at call time
+    (evaluate_with_kev abstains with invalid_config).
+    """
     raw = (os.getenv(name) or "").strip()
     if not raw:
         return default
-    try:
-        return float(raw)
-    except ValueError:
+    if not _ASCII_DECIMAL.fullmatch(raw):
         return float("nan")
+    value = float(raw)
+    if not (math.isfinite(value) and low <= value <= high):
+        return float("nan")
+    return value
 
 
 _ASCII_INT = re.compile(r"\+?[0-9]+")
@@ -86,7 +98,11 @@ class Config:
     KEV_MODEL: str = os.getenv("KEV_MODEL", "kev-latest")
     # Deployment-declared checkpoint/revision; the API model name is only an alias.
     KEV_CHECKPOINT: str = os.getenv("KEV_CHECKPOINT", "")
-    KEV_TIMEOUT_SECONDS: float = _env_float("KEV_TIMEOUT_SECONDS", 1.5)
+    # Whole-request deadline in seconds (connect, send and read included).
+    KEV_TIMEOUT_SECONDS_RANGE = (0.05, 60.0)
+    KEV_TIMEOUT_SECONDS: float = _env_float(
+        "KEV_TIMEOUT_SECONDS", 1.5, *KEV_TIMEOUT_SECONDS_RANGE
+    )
     # Largest (decoded) Kev response body read before abstaining as invalid.
     KEV_MAX_RESPONSE_BYTES_RANGE = (1024, 64 * 1024 * 1024)
     KEV_MAX_RESPONSE_BYTES: int | float = _env_int(
@@ -172,6 +188,11 @@ def _int_in_range(value: object, bounds: tuple[int, int]) -> bool:
     return type(value) is int and bounds[0] <= value <= bounds[1]
 
 
+def kev_timeout_is_valid(value: object) -> bool:
+    low, high = Config.KEV_TIMEOUT_SECONDS_RANGE
+    return type(value) in (int, float) and math.isfinite(value) and low <= value <= high
+
+
 def kev_max_response_bytes_is_valid(value: object) -> bool:
     return _int_in_range(value, Config.KEV_MAX_RESPONSE_BYTES_RANGE)
 
@@ -206,12 +227,12 @@ def _warn_on_invalid_settings() -> None:
                 "KEV_MAX_INPUT_CHARS is not a plain integer in the allowed "
                 "range; Kev requests will abstain with invalid_config"
             )
-    timeout = Config.KEV_TIMEOUT_SECONDS
-    if not math.isfinite(timeout) or timeout <= 0:
-        logger.warning(
-            "KEV_TIMEOUT_SECONDS is not a finite positive number; "
-            "Kev requests will abstain with an invalid_config review trigger"
-        )
+        if not kev_timeout_is_valid(Config.KEV_TIMEOUT_SECONDS):
+            # No digits in the message, so a rejected value can never appear.
+            logger.warning(
+                "KEV_TIMEOUT_SECONDS is not a plain decimal number of seconds in "
+                "the allowed range; Kev requests will abstain with invalid_config"
+            )
 
 
 _warn_on_invalid_settings()

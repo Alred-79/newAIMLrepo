@@ -100,6 +100,50 @@ def test_valid_kev_timeout_is_parsed():
     assert load_config(KEV_TIMEOUT_SECONDS="4")["timeout"] == "4.0"
     assert load_config()["timeout"] == "1.5"
     assert load_config(KEV_TIMEOUT_SECONDS=" ")["timeout"] == "1.5"  # empty = unset
+    assert load_config(KEV_TIMEOUT_SECONDS="")["timeout"] == "1.5"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (" 2 ", "2.0"),
+        ("0.05", "0.05"),
+        ("60", "60.0"),
+        ("60.0", "60.0"),
+        ("+.5", "0.5"),
+        ("1e1", "10.0"),
+        ("2.5E-1", "0.25"),
+    ],
+)
+def test_kev_timeout_accepts_plain_decimal_in_range(value, expected):
+    assert load_config(KEV_TIMEOUT_SECONDS=value)["timeout"] == expected
+
+
+_BAD_TIMEOUTS = [
+    "1_0",  # float() accepts underscores
+    "\u0661\u0660",  # Arabic-Indic digits, which float() also accepts
+    "\uff11",  # fullwidth digit
+    "0x1",
+    "1e-320",  # subnormal: finite and positive but useless
+    "5e-324",
+    "1e300",
+    "1e400",
+    "0.04",
+    "61",
+    "60.0001",
+    "nan",
+    "inf",
+    "-inf",
+    "-1",
+    "0",
+    "1.5s",
+    "1,5",
+]
+
+
+@pytest.mark.parametrize("value", _BAD_TIMEOUTS)
+def test_kev_timeout_is_parsed_strictly(value):
+    assert load_config(KEV_TIMEOUT_SECONDS=value)["timeout"] == "nan"
 
 
 # A distinctive value lets the tests prove it never reaches the log.
@@ -128,13 +172,21 @@ def test_unsupported_backend_logs_one_warning_naming_only_the_setting():
     assert _SENTINEL not in lines[0]
 
 
-@pytest.mark.parametrize("value", [_SENTINEL, "nan", "inf", "-1", "0"])
+@pytest.mark.parametrize("value", [_SENTINEL, *_BAD_TIMEOUTS])
 def test_invalid_kev_timeout_logs_one_warning_naming_only_the_setting(value):
     stderr = run_probe(LIGHTWEIGHT_BACKEND="kev", KEV_TIMEOUT_SECONDS=value)[1]
     lines = warnings_of(stderr)
     assert len(lines) == 1
     assert lines[0].startswith("WARNING:shared.config:KEV_TIMEOUT_SECONDS ")
     assert value not in lines[0]
+
+
+@pytest.mark.parametrize("backend", ["ollama", ""])
+def test_invalid_kev_timeout_is_silent_when_kev_is_not_the_backend(backend):
+    # Kev settings are opt-in; the default ollama deployment must not warn.
+    config, stderr = run_probe(LIGHTWEIGHT_BACKEND=backend, KEV_TIMEOUT_SECONDS="0")
+    assert warnings_of(stderr) == []
+    assert config["timeout"] == "nan"  # still rejected if Kev is ever called
 
 
 def test_invalid_settings_warn_once_per_process_not_per_import():
@@ -147,7 +199,10 @@ def test_invalid_settings_warn_once_per_process_not_per_import():
         "from shared.config import Config as _again",
     )
     stderr = run_probe(
-        script, LIGHTWEIGHT_BACKEND=_SENTINEL, KEV_TIMEOUT_SECONDS=_SENTINEL
+        script,
+        LIGHTWEIGHT_BACKEND="kev",
+        KEV_TIMEOUT_SECONDS=_SENTINEL,
+        KEV_BASE_URL=_SENTINEL,
     )[1]
     lines = warnings_of(stderr)
     assert len(lines) == 2
