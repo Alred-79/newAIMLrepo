@@ -1082,11 +1082,10 @@ async def test_input_over_budget_is_not_sent_and_escalates(turn, monkeypatch):
 @pytest.mark.asyncio
 async def test_input_budget_counts_context_too(turn, monkeypatch):
     monkeypatch.setattr(Config, "KEV_MAX_INPUT_CHARS", 1000)
-    # Everything sent counts: 500 (student) + 471 (content) + 7 ("patient") +
-    # 11 (keys "role", "content") + 3 (one list item, two dict entries) + 4 + 4
-    # (chart_context and probe sent as null) = 1000.
+    # The budget is the whole state as JSON: 500 x's plus 393 y's plus quotes,
+    # keys, brackets, commas, colons and two nulls come to exactly 1000.
     turn.student_message = "x" * 500
-    turn.recent_context = [Message(role="patient", content="y" * 471)]
+    turn.recent_context = [Message(role="patient", content="y" * 393)]
     turn.chart_context = None
     sent = []
 
@@ -1592,3 +1591,110 @@ def test_state_builder_is_bounded_and_linear():
         kev._state_for_kev(huge, 30000)
     assert time.perf_counter() - started < 0.05
     assert small < 0.5
+
+
+def _serialized(state) -> int:
+    # Same settings httpx 0.28 uses for json= request bodies.
+    return len(
+        json.dumps(state, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    )
+
+
+def test_input_budget_is_the_serialized_state_size():
+    from bias_eval import kev
+
+    state = {
+        "student_message": 'say "hi" \\ there\tnow',
+        "recent_context": [{"role": "patient", "content": "\u00e9t\u00e9 \U0001f600"}],
+        "chart_context": {"a": [1, -2.5, True, False, None, 'q"q'], "": {}, "b": []},
+        "probe": None,
+    }
+    size = _serialized(state)
+    assert kev._state_for_kev(state, size)["chart_context"]["a"][5] == 'q"q'
+    with pytest.raises(kev._InputTooLong):
+        kev._state_for_kev(state, size - 1)
+
+
+@pytest.mark.asyncio
+async def test_quotes_count_at_their_escaped_size(turn, monkeypatch):
+    monkeypatch.setattr(Config, "KEV_MAX_INPUT_CHARS", 600)
+    turn.recent_context = []
+    turn.chart_context = {}
+    turn.student_message = '"' * 300  # 300 characters, 602 once serialized
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "input_too_long")}
+
+
+class _Str(str):
+    pass
+
+
+class _Int(int):
+    pass
+
+
+class _Float(float):
+    pass
+
+
+class _Dict(dict):
+    pass
+
+
+class _List(list):
+    pass
+
+
+class _ShortStr(str):
+    def __len__(self):
+        return 0
+
+
+@pytest.mark.parametrize(
+    "chart",
+    [
+        {"a": _Str("x")},
+        {"a": _Int(1)},
+        {"a": _Float(1.5)},
+        {"a": _Dict()},
+        {"a": _List()},
+        {_Str("k"): 1},
+        {"a": _ShortStr("y" * 50_000)},
+    ],
+    ids=["str", "int", "float", "dict", "list", "key", "lying_len"],
+)
+@pytest.mark.asyncio
+async def test_subclassed_values_are_invalid_input(turn, chart):
+    turn.chart_context = chart
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}
+
+
+@pytest.mark.parametrize(
+    "chart",
+    [
+        {"student_message": "x"},
+        {"recent_context": []},
+        {"chart_context": 1},
+        {"probe": None},
+        {"Probe": 1},
+        {" probe\n": 1},
+        {"a": {"student_message": "x"}},
+        {"a": [{"probe": 1}]},
+    ],
+)
+@pytest.mark.asyncio
+async def test_chart_context_label_keys_are_invalid_input(turn, chart):
+    turn.chart_context = chart
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}
+
+
+@pytest.mark.asyncio
+async def test_chart_keys_that_only_contain_a_label_are_sent(turn):
+    turn.chart_context = {"probe_attention": 1, "student_message_count": 2}
+
+    def handler(_):
+        return httpx.Response(200, json=response_for(build_questions(turn)))
+
+    assert (await classify(turn, handler)).tier1.status == "ok"

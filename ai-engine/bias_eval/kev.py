@@ -92,46 +92,75 @@ def _flatten(text: str) -> str:
     return _WHITESPACE_RUN.sub(" ", text).strip()
 
 
+# Kev labels the state's top-level fields with these names; a chart_context
+# key equal to one (after flattening, ignoring case) could pass for a field.
+_STATE_LABELS = frozenset(
+    {"student_message", "recent_context", "chart_context", "probe"}
+)
+_CONTAINERS = (dict, list, tuple)
+
+
+def _json_str_chars(text: str, total: int, budget: int) -> int:
+    # Escaping only lengthens a string, so check its raw length (plus quotes)
+    # first: an oversized string is rejected without being encoded.
+    if total + len(text) + 2 > budget:
+        raise _InputTooLong
+    return len(json.dumps(text, ensure_ascii=False))
+
+
 def _scalar_chars(value) -> int:
-    """Length of a non-container value as JSON text; raise if it is not text-safe."""
-    if isinstance(value, str):
-        return len(value)
-    if value is None or isinstance(value, bool):
-        return 5 if value is False else 4
-    if isinstance(value, int):
+    """Length of a non-container value as JSON text; raise if it is not text-safe.
+
+    Exact types only: a subclass (str, int, float, enum, ...) could change its
+    own length, text or JSON form, so it is refused rather than trusted.
+    """
+    if value is None or value is True:
+        return 4
+    if value is False:
+        return 5
+    if type(value) is int:
         try:
             return len(str(value))
         except ValueError:  # beyond Python's int-to-str digit limit
             raise _InvalidInput from None
-    if isinstance(value, float) and math.isfinite(value):
+    if type(value) is float and math.isfinite(value):
         return len(repr(value))
-    raise _InvalidInput  # set, bytes, NaN/inf, arbitrary objects, ...
+    raise _InvalidInput  # set, bytes, NaN/inf, subclasses, arbitrary objects, ...
 
 
 def _raw_state_chars(state: dict, budget: int) -> int:
-    """Raw size of everything sent, checked before any regex work.
+    """Size of the state as compact JSON, checked before any regex work.
 
-    Counts every string (dict keys included), every other scalar at its JSON
-    text length, and one character per list item or dict entry, so the walk
-    stops as soon as the budget is exceeded and its cost is bounded by the
-    budget. Values that cannot be sent as text, non-string keys and nesting
-    deeper than _MAX_STATE_DEPTH raise _InvalidInput.
+    The count is exactly len(json.dumps(state, ensure_ascii=False,
+    separators=(",", ":"))), the form httpx sends, measured on the state
+    before flattening (flattening only shortens it). The walk stops as soon
+    as the budget is exceeded, so its cost is bounded by the budget. Values
+    that are not exactly str/int/float/bool/None/dict/list/tuple, non-str
+    keys and nesting deeper than _MAX_STATE_DEPTH raise _InvalidInput.
     """
     total = 0
-    stack = [(value, 1) for value in state.values()]
+    stack = [(state, 0)]
     while stack:
         value, depth = stack.pop()
-        if isinstance(value, (dict, list, tuple)):
+        kind = type(value)
+        if kind is str:
+            total += _json_str_chars(value, total, budget)
+        elif kind in _CONTAINERS:
             if depth > _MAX_STATE_DEPTH:
                 raise _InvalidInput
-            total += len(value)
+            # Brackets, commas between items, and a colon per dict entry.
+            total += 2 + max(len(value) - 1, 0)
+            if kind is dict:
+                total += len(value)
             if total > budget:
                 raise _InputTooLong
-            if isinstance(value, dict):
+            if kind is dict:
                 for key, item in value.items():
-                    if not isinstance(key, str):
+                    if type(key) is not str:
                         raise _InvalidInput
-                    total += len(key)
+                    total += _json_str_chars(key, total, budget)
+                    if total > budget:
+                        raise _InputTooLong
                     stack.append((item, depth + 1))
             else:
                 stack.extend((item, depth + 1) for item in value)
@@ -142,27 +171,37 @@ def _raw_state_chars(state: dict, budget: int) -> int:
     return total
 
 
-def _flattened(value):
+def _flattened(value, reserved: frozenset = frozenset()):
     """Copy with every string and dict key flattened; structure otherwise kept."""
-    if isinstance(value, str):
+    if type(value) is str:
         return _flatten(value)
-    if isinstance(value, dict):
+    if type(value) is dict:
         copy = {}
         for key, item in value.items():
             flat_key = _flatten(key)
             if flat_key in copy:  # e.g. "a\nb" and "a b": never drop a value
                 raise _InvalidInput
-            copy[flat_key] = _flattened(item)
+            if flat_key.casefold() in reserved:
+                raise _InvalidInput
+            copy[flat_key] = _flattened(item, reserved)
         return copy
-    if isinstance(value, (list, tuple)):
-        return [_flattened(item) for item in value]
+    if type(value) in (list, tuple):
+        return [_flattened(item, reserved) for item in value]
     return value
 
 
 def _state_for_kev(state: dict, budget: int) -> dict:
-    """The only path from transcript data to the outgoing state (see above)."""
+    """The only path from transcript data to the outgoing state (see above).
+
+    chart_context keys, at any depth, may not equal a state label.
+    """
     _raw_state_chars(state, budget)
-    return {name: _flattened(value) for name, value in state.items()}
+    return {
+        name: _flattened(
+            value, _STATE_LABELS if name == "chart_context" else frozenset()
+        )
+        for name, value in state.items()
+    }
 
 
 # patient_bias_response has no flagged choices: a confident answer (including
