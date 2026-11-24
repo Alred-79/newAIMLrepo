@@ -73,8 +73,14 @@ ReviewReason = Literal[
     "transport_error",  # timeout, connection failure or HTTP error status
     "invalid_response",  # malformed or incomplete answers from Kev
     "invalid_config",  # local misconfiguration (e.g. KEV_TIMEOUT_SECONDS); not sent
+    "input_too_long",  # transcript text over KEV_MAX_INPUT_CHARS; not sent
 ]
-_REQUEST_REASONS = {"transport_error", "invalid_response", "invalid_config"}
+_REQUEST_REASONS = {
+    "transport_error",
+    "invalid_response",
+    "invalid_config",
+    "input_too_long",
+}
 
 
 class ReviewTrigger(BaseModel):

@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import json
 import math
+import re
 import time
 
 import httpx
@@ -12,6 +13,7 @@ from pydantic import TypeAdapter, ValidationError
 from shared.config import (
     Config,
     kev_base_url_is_allowed,
+    kev_max_input_chars_is_valid,
     kev_max_response_bytes_is_valid,
 )
 from shared.models import BiasLabel, EvaluationInput, EvaluationResult
@@ -31,6 +33,33 @@ _ANSWER = TypeAdapter(DecisionAnswer)
 
 class _InvalidConfig(Exception):
     """A local setting makes the request impossible; nothing is sent to Kev."""
+
+
+class _InputTooLong(Exception):
+    """The transcript text exceeds KEV_MAX_INPUT_CHARS; nothing is sent to Kev."""
+
+
+# Kev renders the state as labelled lines, so a line break inside a message
+# could fake another field (e.g. a "recent_context:" block). Any run containing
+# a control character or line/paragraph separator, together with adjacent
+# whitespace, becomes one space. Same rule for every student; only the copy
+# sent to Kev is changed, never the stored transcript.
+_CONTROL = r"\x00-\x1f\x7f-\x9f\u2028\u2029"
+_CONTROL_RUN = re.compile(rf"[\s{_CONTROL}]*[{_CONTROL}][\s{_CONTROL}]*")
+
+
+def _flatten(text: str) -> str:
+    return _CONTROL_RUN.sub(" ", text)
+
+
+def _input_chars(state: dict) -> int:
+    chars = len(state["student_message"])
+    chars += sum(len(m.get("content", "")) for m in state["recent_context"])
+    if state["probe"]:
+        chars += len(state["probe"]["text"])
+    if state["chart_context"] is not None:
+        chars += len(json.dumps(state["chart_context"], ensure_ascii=False))
+    return chars
 
 
 # patient_bias_response has no flagged choices: a confident answer (including
@@ -113,9 +142,10 @@ async def evaluate_with_kev(
     payload = {
         "model": Config.KEV_MODEL,
         "state": {
-            "student_message": input.student_message,
+            "student_message": _flatten(input.student_message),
             "recent_context": [
-                m.model_dump(exclude_none=True) for m in input.recent_context
+                {**m.model_dump(exclude_none=True), "content": _flatten(m.content)}
+                for m in input.recent_context
             ],
             "chart_context": input.chart_context,
             "probe": input.probe.model_dump() if input.probe else None,
@@ -138,6 +168,10 @@ async def evaluate_with_kev(
         max_bytes = Config.KEV_MAX_RESPONSE_BYTES
         if not kev_max_response_bytes_is_valid(max_bytes):
             raise _InvalidConfig("KEV_MAX_RESPONSE_BYTES is not a valid byte count")
+        if not kev_max_input_chars_is_valid(Config.KEV_MAX_INPUT_CHARS):
+            raise _InvalidConfig("KEV_MAX_INPUT_CHARS is not a valid character count")
+        if _input_chars(payload["state"]) > Config.KEV_MAX_INPUT_CHARS:
+            raise _InputTooLong
         try:
             url = httpx.URL(Config.KEV_BASE_URL.strip().rstrip("/") + "/v1/systemone")
         except (httpx.InvalidURL, ValueError, TypeError):
@@ -186,6 +220,9 @@ async def evaluate_with_kev(
         error_reason = "transport_error"
     except (httpx.HTTPError, httpx.InvalidURL):
         error, error_reason = "Kev connection failed", "transport_error"
+    except _InputTooLong:
+        error = "Kev input exceeds KEV_MAX_INPUT_CHARS; not sent"
+        error_reason = "input_too_long"
     except _InvalidConfig as exc:
         # Our own fixed messages; they name a setting, never its value.
         error, error_reason = str(exc), "invalid_config"

@@ -25,6 +25,7 @@ print(json.dumps({
     "backend": Config.LIGHTWEIGHT_BACKEND,
     "timeout": repr(Config.KEV_TIMEOUT_SECONDS),
     "max_bytes": repr(Config.KEV_MAX_RESPONSE_BYTES),
+    "max_chars": repr(Config.KEV_MAX_INPUT_CHARS),
 }))
 """
 
@@ -176,6 +177,7 @@ def test_response_cap_is_parsed_strictly():
         ("KEV_BASE_URL", "http://" + _SENTINEL + ".example"),
         ("KEV_BASE_URL", _SENTINEL),
         ("KEV_MAX_RESPONSE_BYTES", _SENTINEL),
+        ("KEV_MAX_INPUT_CHARS", _SENTINEL),
     ],
 )
 def test_invalid_kev_transport_setting_warns_once_only_for_kev(name, value):
@@ -191,3 +193,10 @@ def test_invalid_kev_transport_setting_warns_once_only_for_kev(name, value):
 )
 def test_allowed_kev_base_url_logs_no_warning(url):
     assert warnings_of(run_probe(LIGHTWEIGHT_BACKEND="kev", KEV_BASE_URL=url)[1]) == []
+
+
+def test_input_budget_is_parsed_strictly():
+    assert load_config()["max_chars"] == "12000"
+    assert load_config(KEV_MAX_INPUT_CHARS="5000")["max_chars"] == "5000"
+    for value in ["12_000", "1.2e4", "0x2ee0", "-1", "0", str(10**6), "5000.0"]:
+        assert load_config(KEV_MAX_INPUT_CHARS=value)["max_chars"] == "nan", value

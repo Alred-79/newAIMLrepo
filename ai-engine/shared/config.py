@@ -92,6 +92,14 @@ class Config:
     KEV_MAX_RESPONSE_BYTES: int | float = _env_int(
         "KEV_MAX_RESPONSE_BYTES", 1024 * 1024, *KEV_MAX_RESPONSE_BYTES_RANGE
     )
+    # Combined characters of transcript text sent to Kev (student message, recent
+    # context, probe text, serialized chart context). Longer input is not sent and
+    # abstains with input_too_long. The default is a conservative guard well below
+    # Kev's validated 8,192-token window; it is not a tokenizer-exact limit.
+    KEV_MAX_INPUT_CHARS_RANGE = (200, 30000)
+    KEV_MAX_INPUT_CHARS: int | float = _env_int(
+        "KEV_MAX_INPUT_CHARS", 12000, *KEV_MAX_INPUT_CHARS_RANGE
+    )
     SUPPORTED_LIGHTWEIGHT_BACKENDS = ("kev", "ollama")
     CONFIDENCE_THRESHOLD: float = 0.80   # RAISED from 0.75 — reduce false positive reflections
     LIGHTWEIGHT_TEMPERATURE: float = 0.0  # LOWERED from 0.1 — max determinism for classification
@@ -160,9 +168,16 @@ def kev_base_url_is_allowed(url: object) -> bool:
         return False
 
 
+def _int_in_range(value: object, bounds: tuple[int, int]) -> bool:
+    return type(value) is int and bounds[0] <= value <= bounds[1]
+
+
 def kev_max_response_bytes_is_valid(value: object) -> bool:
-    low, high = Config.KEV_MAX_RESPONSE_BYTES_RANGE
-    return type(value) is int and low <= value <= high
+    return _int_in_range(value, Config.KEV_MAX_RESPONSE_BYTES_RANGE)
+
+
+def kev_max_input_chars_is_valid(value: object) -> bool:
+    return _int_in_range(value, Config.KEV_MAX_INPUT_CHARS_RANGE)
 
 
 def _warn_on_invalid_settings() -> None:
@@ -184,6 +199,11 @@ def _warn_on_invalid_settings() -> None:
         if not kev_max_response_bytes_is_valid(Config.KEV_MAX_RESPONSE_BYTES):
             logger.warning(
                 "KEV_MAX_RESPONSE_BYTES is not a plain integer in the allowed "
+                "range; Kev requests will abstain with invalid_config"
+            )
+        if not kev_max_input_chars_is_valid(Config.KEV_MAX_INPUT_CHARS):
+            logger.warning(
+                "KEV_MAX_INPUT_CHARS is not a plain integer in the allowed "
                 "range; Kev requests will abstain with invalid_config"
             )
     timeout = Config.KEV_TIMEOUT_SECONDS
