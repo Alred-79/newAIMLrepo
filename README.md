@@ -80,7 +80,14 @@ sending a request, with an `invalid_config` review trigger):
 - `KEV_BASE_URL` must be an absolute `https://` URL, or plain `http://` only to a
   loopback host (`localhost`, `127.0.0.0/8`, `::1`). Empty, relative or malformed
   URLs are invalid, and so is any URL with userinfo (`user:pass@host`), which would
-  otherwise be sent as Basic auth in place of the bearer key. Redirects are never
+  otherwise be sent as Basic auth in place of the bearer key. Also invalid: any
+  query or fragment (`?` or `#`), any non-ASCII character and IDNA (`xn--`) host
+  labels, an empty or zero port (`host:` or `host:0`), and `%` in the host (IPv6
+  zone ids such as `[fe80::1%25en0]`, percent-encoded hosts). IPv4-mapped IPv6
+  hosts such as `[::ffff:127.0.0.1]` are never accepted as loopback for plain
+  `http://` (Python 3.13 treats that address as loopback and 3.11/3.12 do not;
+  rejecting it keeps one rule on every version). An invalid URL logs one warning
+  that names only the setting, never the value. Redirects are never
   followed, even by an injected client, so a redirect response is a
   `transport_error`.
 - `KEV_TIMEOUT_SECONDS` bounds the whole request. It must be a plain ASCII decimal
@@ -93,21 +100,30 @@ sending a request, with an `invalid_config` review trigger):
   compressed body cannot expand in memory. The body is read in a stream and
   abandoned once over the cap. Both cases are an `invalid_response`.
 - `KEV_MAX_INPUT_CHARS` (plain integer, 200 to 30000, default 12000) caps the
-  combined raw characters of everything in the request state: the student message,
-  every recent-context field (role, content, timestamp), the probe, the chart
-  context's keys and values, plus one character per list item or dict entry. The
-  count is taken before flattening and stops as soon as it passes the cap. Longer
+  size of the whole request state serialized as compact JSON, exactly as httpx
+  sends it (`ensure_ascii=False`, separators `,` and `:`): field names, the student
+  message, every recent-context field, the probe and the chart context, with
+  quotes, escapes, brackets, commas and colons all counted. The count is taken
+  before flattening (which only shortens text) and stops as soon as it passes the
+  cap. Longer
   input is not sent; the turn abstains and escalates with the request-level reason
   `input_too_long`. This is a conservative character guard, not a tokenizer-exact
   limit.
-- Only strings, integers, finite floats, booleans, null, lists and string-keyed
-  dicts, nested at most 8 deep, can be sent. Anything else (sets, bytes, NaN or
+- Only values whose type is exactly `str`, `int`, `float` (finite), `bool`,
+  `None`, `list`/`tuple` or `dict` with exact-`str` keys, nested at most 8 deep,
+  can be sent. Anything else (subclasses of those types, sets, bytes, NaN or
   infinity, arbitrary objects, non-string keys, an integer too large to print,
-  deeper nesting, or two keys that become equal after flattening) is not sent; the
+  deeper nesting, two keys that become equal after flattening, or a chart-context
+  key at any depth that, flattened and case-folded, equals a state label:
+  `student_message`, `recent_context`, `chart_context` or `probe`) is not sent; the
   turn abstains and escalates with the request-level reason `invalid_input`.
 - Before sending, every string in the state, dict keys included, is flattened:
-  Unicode format characters (category Cf, such as zero-width and bidirectional
-  controls) are deleted, control characters (including newlines, carriage returns
+  only the invisible characters used to hide or reorder text are deleted (U+200B,
+  U+202A-202E, U+2060-2064, U+2066-2069, U+FEFF, U+FFF9-FFFB, U+E0001 and
+  U+E0020-E007F), except that a well-formed subdivision flag (U+1F3F4, 3-7 tag
+  letters or digits, then U+E007F) is kept whole; every other format character,
+  including ZWNJ/ZWJ, LRM/RLM, Arabic number signs and the soft hyphen, is kept.
+  Control characters (including newlines, carriage returns
   and the Unicode line/paragraph separators) become spaces, whitespace runs
   collapse to one space and the ends are trimmed, so text cannot fake another
   labelled field in Kev's prompt. Only the copy sent to Kev changes; the stored
