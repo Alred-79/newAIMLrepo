@@ -69,7 +69,34 @@ KEV_API_KEY=
 KEV_MODEL=kev-latest
 KEV_CHECKPOINT=
 KEV_TIMEOUT_SECONDS=1.5
+KEV_MAX_RESPONSE_BYTES=1048576
+KEV_MAX_INPUT_CHARS=12000
 ```
+
+Setting rules (checked when the backend is `kev`; an invalid value is logged once at
+import by name only, never its value, and every Kev turn then abstains without
+sending a request, with an `invalid_config` review trigger):
+
+- `KEV_BASE_URL` must be an absolute `https://` URL, or plain `http://` only to a
+  loopback host (`localhost`, `127.0.0.0/8`, `::1`). Empty, relative or malformed
+  URLs are invalid. Redirects are never followed, even by an injected client, so a
+  redirect response is a `transport_error`.
+- `KEV_TIMEOUT_SECONDS` bounds the whole request. It must be a plain ASCII decimal
+  or scientific number (no underscores, non-ASCII digits, hex, `nan` or `inf`)
+  between 0.05 and 60. Empty or whitespace means the default, 1.5.
+- `KEV_MAX_RESPONSE_BYTES` (plain integer, 1024 to 67108864, default 1048576) caps
+  the response body. It is read in a stream and abandoned once over the cap, which
+  is an `invalid_response`.
+- `KEV_MAX_INPUT_CHARS` (plain integer, 200 to 30000, default 12000) caps the
+  combined raw characters of the student message, recent context, probe text and
+  serialized chart context. Longer input is not sent; the turn abstains and
+  escalates with the request-level reason `input_too_long`. This is a conservative
+  character guard, not a tokenizer-exact limit.
+- Before sending, control characters (including newlines, carriage returns and the
+  Unicode line/paragraph separators) in the student message and in each recent
+  context entry become spaces, whitespace runs collapse to one space and the ends
+  are trimmed, so student text cannot fake another labelled field in Kev's prompt.
+  Only the copy sent to Kev changes; the stored transcript is not modified.
 
 `KEV_BASE_URL` is the server root, without `/v1/systemone`. An API key is optional
 for a local server; if the server requires one, it is sent as a bearer token.
@@ -110,6 +137,14 @@ confidence separately:
 | `patient_bias_response` | Choice | Separate Axis 5 construct; asked in every scenario, with `not_applicable` when the patient expressed no prejudice, so the question set does not reveal the scenario type |
 | `probe_attention` | Score | Under / appropriate / over attention; requested only with an explicitly supplied, delivered probe (so its presence, and the question-bank hash, show that a probe was delivered) |
 
+Known design gap: `patient_bias_response` never requests review because of the
+option Kev chooses (it has no flagged choices, since `not_applicable` is the
+expected answer in most scenarios). It requests review only when the answer is
+`uncertain` or below the confidence threshold. A confident but inappropriate
+response to a prejudiced patient therefore does not request review by itself (the
+turn can still escalate through other questions); the answer is still returned in
+the Tier-1 result. This is documented, not changed, pending a validated rule.
+
 Clinical action (Axis 1) is not model-scored here. No axis probabilities are
 multiplied or combined into a person-level score. For attention, inspect all three
 probabilities: a mean of 1 can also mean equal probabilities of under- and
@@ -137,11 +172,12 @@ bounds the whole request; it is configurable and is not a latency guarantee.
   to answer its first request. That turn then returns `uncertain`, an unavailable
   Tier-1 result and `should_escalate=True` with a `transport_error` review trigger.
   This is by design (abstain, never guess), not a fault to retry around.
-- An unsupported `LIGHTWEIGHT_BACKEND`, or a `KEV_TIMEOUT_SECONDS` that is not a
-  finite positive number, is logged once as a warning when the engine imports its
-  configuration (the setting's name only, never its value). With a bad timeout every
-  Kev turn abstains without sending a request and records an `invalid_config` review
-  trigger, distinct from `invalid_response` (a malformed or incomplete Kev answer).
+- An unsupported `LIGHTWEIGHT_BACKEND` is always logged once as a warning when the
+  engine imports its configuration; invalid Kev settings (see the setting rules
+  above) are logged only when the backend is `kev`. Only the setting's name is
+  logged, never its value. With a bad Kev setting every Kev turn abstains without
+  sending a request and records an `invalid_config` review trigger, distinct from
+  `invalid_response` (a malformed, oversized or incomplete Kev answer).
 - On a Tier-1 timeout or transport error the turn is escalated: when
   `HEAVYWEIGHT_ENABLED` is true (the default), the simulator then awaits the
   heavyweight evaluation before it returns the turn, so that turn waits for the

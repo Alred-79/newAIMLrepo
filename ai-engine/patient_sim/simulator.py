@@ -1,12 +1,15 @@
 """
 ClinEQ — Patient Simulator Orchestrator (Revised)
 
-Three parallel paths:
+Three evaluation paths per turn:
 1. Assembler → patient response (fast, ~500ms)
 2. Lightweight eval → tone/language → System message if biased (fast, ~800ms)
 3. Heavyweight eval → clinical reasoning → System message if biased (slow, ~2-4s, conditional)
 
-None of these influence each other. All three are fire-and-forget.
+Paths 1 and 2 run concurrently and both are awaited before the turn returns.
+Path 3 is not independent: it runs only when HEAVYWEIGHT_ENABLED and either the
+lightweight result requests escalation or a clinical action is detected, and it is
+then awaited too. None of the paths is fire-and-forget.
 """
 
 import asyncio
