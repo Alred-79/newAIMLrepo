@@ -162,8 +162,9 @@ class Config:
 def kev_base_url_is_allowed(url: object) -> bool:
     """https anywhere; plain http only to a loopback host (localhost, 127/8, ::1).
 
-    Empty, relative or malformed URLs are rejected so they are reported as a
-    local configuration error, not as a Kev failure.
+    Empty, relative or malformed URLs, and URLs with userinfo (user:pass@),
+    are rejected so they are reported as a local configuration error, not as
+    a Kev failure.
     """
     if not isinstance(url, str) or not url.strip():
         return False
@@ -175,6 +176,9 @@ def kev_base_url_is_allowed(url: object) -> bool:
     host = parts.hostname
     scheme = parts.scheme.lower()
     if not host or scheme not in ("http", "https"):
+        return False
+    # userinfo would be sent as Basic auth, replacing the Bearer key.
+    if "@" in parts.netloc:
         return False
     if scheme == "https" or host == "localhost":
         return True

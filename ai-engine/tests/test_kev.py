@@ -883,6 +883,12 @@ async def test_simulator_lightweight_error_is_not_printed_and_kev_fails_safe(
         "https://",
         "http://[::1",
         "https://kev.test:notaport",
+        # userinfo: httpx would send it as Basic auth in place of the Bearer key
+        "https://user:pass@kev.test",
+        "https://user@kev.test",
+        "https://:pass@kev.test",
+        "https://@kev.test",
+        "http://user:pass@127.0.0.1:8009",
     ],
 )
 @pytest.mark.asyncio
