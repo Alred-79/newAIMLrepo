@@ -41,15 +41,17 @@ class _InputTooLong(Exception):
 
 # Kev renders the state as labelled lines, so a line break inside a message
 # could fake another field (e.g. a "recent_context:" block). Any run containing
-# a control character or line/paragraph separator, together with adjacent
-# whitespace, becomes one space. Same rule for every student; only the copy
-# sent to Kev is changed, never the stored transcript.
-_CONTROL = r"\x00-\x1f\x7f-\x9f\u2028\u2029"
-_CONTROL_RUN = re.compile(rf"[\s{_CONTROL}]*[{_CONTROL}][\s{_CONTROL}]*")
+# Every control character or line/paragraph separator becomes a space, then each
+# whitespace run becomes one space and the ends are trimmed. Same rule for every
+# student; only the copy sent to Kev is changed, never the stored transcript.
+# Two single-class passes keep this linear in the text length (an earlier
+# combined pattern backtracked quadratically on long whitespace runs).
+_CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+_WHITESPACE_RUN = re.compile(r"\s+")
 
 
 def _flatten(text: str) -> str:
-    return _CONTROL_RUN.sub(" ", text)
+    return _WHITESPACE_RUN.sub(" ", _CONTROL_CHAR.sub(" ", text)).strip()
 
 
 def _input_chars(state: dict) -> int:
@@ -142,10 +144,10 @@ async def evaluate_with_kev(
     payload = {
         "model": Config.KEV_MODEL,
         "state": {
-            "student_message": _flatten(input.student_message),
+            # Raw here; flattened in place below, after the length budget passes.
+            "student_message": input.student_message,
             "recent_context": [
-                {**m.model_dump(exclude_none=True), "content": _flatten(m.content)}
-                for m in input.recent_context
+                m.model_dump(exclude_none=True) for m in input.recent_context
             ],
             "chart_context": input.chart_context,
             "probe": input.probe.model_dump() if input.probe else None,
@@ -172,8 +174,13 @@ async def evaluate_with_kev(
             raise _InvalidConfig("KEV_MAX_RESPONSE_BYTES is not a valid byte count")
         if not kev_max_input_chars_is_valid(Config.KEV_MAX_INPUT_CHARS):
             raise _InvalidConfig("KEV_MAX_INPUT_CHARS is not a valid character count")
-        if _input_chars(payload["state"]) > Config.KEV_MAX_INPUT_CHARS:
+        # Budget on the raw text first, so oversized input costs no regex work.
+        state = payload["state"]
+        if _input_chars(state) > Config.KEV_MAX_INPUT_CHARS:
             raise _InputTooLong
+        state["student_message"] = _flatten(state["student_message"])
+        for message in state["recent_context"]:  # fresh dicts from model_dump
+            message["content"] = _flatten(message["content"])
         try:
             url = httpx.URL(Config.KEV_BASE_URL.strip().rstrip("/") + "/v1/systemone")
         except (httpx.InvalidURL, ValueError, TypeError):

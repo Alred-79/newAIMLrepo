@@ -1053,3 +1053,58 @@ def test_input_too_long_is_a_request_level_reason():
     with pytest.raises(ValueError):
         _tier1(status="ok", review_triggers=[{"reason": "input_too_long"}])
     assert _tier1(status="unavailable", review_triggers=[{"reason": "input_too_long"}])
+
+
+@pytest.mark.parametrize("where", ["student", "context"])
+@pytest.mark.asyncio
+async def test_oversized_raw_input_is_rejected_before_flattening(
+    turn, monkeypatch, where
+):
+    # The budget must be enforced on the raw text before any normalization runs,
+    # so an oversized message costs no regex work at all.
+    from bias_eval import kev
+
+    monkeypatch.setattr(Config, "KEV_MAX_INPUT_CHARS", 1000)
+    calls = []
+    monkeypatch.setattr(kev, "_flatten", lambda text: calls.append(text) or text)
+    if where == "student":
+        turn.student_message = " " * 1001
+    else:
+        turn.student_message = "ok"
+        turn.recent_context = [Message(role="patient", content="\n" * 999)]
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "input_too_long")}
+    assert result.should_escalate
+    assert calls == []
+
+
+_FLATTEN_TIMING = """
+import sys, time
+from bias_eval.kev import _flatten
+worst = 0.0
+for text in (" " * 1_000_000, " \\u00a0" * 500_000, " " * 999_999 + "\\n"):
+    started = time.perf_counter()
+    out = _flatten(text)
+    worst = max(worst, time.perf_counter() - started)
+    assert out in ("", " "), out[:10]
+print(worst)
+"""
+
+
+def test_flatten_is_linear_on_long_whitespace():
+    # A quadratic pattern took ~2 s for 20,000 spaces; 1,000,000 must be fast.
+    # Run in a subprocess with a hard timeout so a regression cannot hang CI.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    done = subprocess.run(
+        [sys.executable, "-c", _FLATTEN_TIMING],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-300:]
+    assert float(done.stdout) < 1.0
