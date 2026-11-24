@@ -112,4 +112,11 @@ class Tier1Result(BaseModel):
         for trigger in self.review_triggers:
             if trigger.question is not None and trigger.question not in self.answers:
                 raise ValueError("A review trigger must name an answered question")
+        # A failed request is never "ok". The converse is not enforced, so legacy
+        # rows stored as unavailable with an error and no triggers still load.
+        if self.status == "ok" and (
+            self.error is not None
+            or any(t.reason in _REQUEST_REASONS for t in self.review_triggers)
+        ):
+            raise ValueError("An ok result cannot carry an error or request failure")
         return self

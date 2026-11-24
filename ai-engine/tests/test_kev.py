@@ -761,3 +761,42 @@ def test_review_trigger_validation_is_strict(trigger):
             answers={"tone": choice},
             review_triggers=[trigger],
         )
+
+
+def _tier1(**fields):
+    from shared.tier1_models import Tier1Result
+
+    base = {"model": "kev-latest", "prompt_hash": "abc", "latency_ms": 0}
+    return Tier1Result.model_validate({**base, **fields})
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"error": "boom"},
+        {"review_triggers": [{"question": None, "reason": "transport_error"}]},
+        {"review_triggers": [{"question": None, "reason": "invalid_response"}]},
+        {"review_triggers": [{"question": None, "reason": "invalid_config"}]},
+    ],
+    ids=["error", "transport_error", "invalid_response", "invalid_config"],
+)
+def test_ok_status_rejects_error_or_request_level_trigger(fields):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _tier1(status="ok", **fields)
+
+
+def test_legacy_unavailable_result_without_triggers_still_loads():
+    result = _tier1(status="unavailable", error="boom")
+    assert result.review_triggers == []
+
+
+def test_unavailable_result_with_request_trigger_loads():
+    trigger = {"question": None, "reason": "transport_error"}
+    result = _tier1(status="unavailable", error="boom", review_triggers=[trigger])
+    assert triggers_of_model(result) == {(None, "transport_error")}
+
+
+def triggers_of_model(tier1):
+    return {(t.question, t.reason) for t in tier1.review_triggers}
