@@ -229,11 +229,13 @@ def test_websocket_processing_error_sends_only_a_fixed_message_and_id(
         demo.SCENARIOS, "s1", SimpleNamespace(patient_profile=SimpleNamespace(name="p"))
     )
     monkeypatch.setattr(demo, "SessionManager", FailingSession)
-    with caplog.at_level("DEBUG"):
-        with TestClient(demo.app).websocket_connect("/ws/chat/s1") as ws:
-            ws.receive_json()  # welcome message
-            ws.send_json({"type": "message", "content": CANARY})
-            payload = ws.receive_json()
+    with (
+        caplog.at_level("DEBUG"),
+        TestClient(demo.app).websocket_connect("/ws/chat/s1") as ws,
+    ):
+        ws.receive_json()  # welcome message
+        ws.send_json({"type": "message", "content": CANARY})
+        payload = ws.receive_json()
     assert payload["type"] == "error"
     assert CANARY not in str(payload)
     assert re.fullmatch(r"[0-9a-f]{12}", payload["error_id"])

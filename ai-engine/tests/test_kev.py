@@ -69,8 +69,35 @@ def response_for(questions, choices=None):
     return {"model": "kev-latest", "answers": answers}
 
 
+class _WireTransport(httpx.MockTransport):
+    """MockTransport whose responses stream the way a socket's do.
+
+    httpx pre-reads a Response built from in-memory content, so aiter_raw (what
+    Kev reads) would report it consumed; a real transport never pre-reads.
+    Such a response is re-sent as a one-chunk stream of its body. Only used
+    with identity bodies, where the wire bytes equal the content; encoded
+    bodies in these tests are already async streams and pass through as-is.
+    """
+
+    async def handle_async_request(self, request):
+        response = await super().handle_async_request(request)
+        if not response.is_stream_consumed:
+            return response
+        body = response.content
+
+        async def once():
+            yield body
+
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers,
+            content=once(),
+            request=request,
+        )
+
+
 async def classify(turn, handler):
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+    async with httpx.AsyncClient(transport=_WireTransport(handler)) as client:
         result = await evaluate_with_kev(turn, client=client)
         assert not client.is_closed  # Caller retains ownership of a pooled client.
         return result
@@ -216,7 +243,7 @@ def test_sync_dispatch_closes_owned_http_client(turn, monkeypatch):
     def factory(**kwargs):
         assert kwargs.get("follow_redirects") is False
         client = client_class(
-            transport=httpx.MockTransport(
+            transport=_WireTransport(
                 lambda _: httpx.Response(200, json=response_for(build_questions(turn)))
             ),
             **kwargs,
@@ -991,7 +1018,7 @@ async def test_redirects_are_not_followed_even_by_an_injected_client(turn):
         sent.append(str(request.url))
         return httpx.Response(307, headers={"Location": "https://elsewhere.test/x"})
 
-    transport = httpx.MockTransport(handler)
+    transport = _WireTransport(handler)
     async with httpx.AsyncClient(transport=transport, follow_redirects=True) as c:
         result = await evaluate_with_kev(turn, client=c)
     assert sent == ["https://kev.test:8009/v1/systemone"]
@@ -1227,16 +1254,16 @@ async def test_compressed_response_is_refused_before_decoding(
             200, content=stream(), headers={"Content-Encoding": encoding}
         )
 
-    transport = httpx.MockTransport(handler)
+    transport = _WireTransport(handler)
     if injected:
-        factory = lambda: classify(turn, handler)  # noqa: E731
+        factory = lambda: classify(turn, handler)
     else:
         real_client = httpx.AsyncClient
         monkeypatch.setattr(
             "bias_eval.kev.httpx.AsyncClient",
             lambda **kw: real_client(transport=transport, **kw),
         )
-        factory = lambda: evaluate_with_kev(turn)  # noqa: E731
+        factory = lambda: evaluate_with_kev(turn)
     result, peak = await _peak_bytes(factory)
     assert seen == ["identity"]
     assert triggers_of(result) == {(None, "invalid_response")}
@@ -1698,3 +1725,26 @@ async def test_chart_keys_that_only_contain_a_label_are_sent(turn):
         return httpx.Response(200, json=response_for(build_questions(turn)))
 
     assert (await classify(turn, handler)).tier1.status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_body_is_read_raw_even_if_the_encoding_check_is_bypassed(
+    turn, monkeypatch
+):
+    # Defence in depth: should the header check ever pass an encoded body, the
+    # cap must still count wire bytes, and those are not the JSON Kev meant.
+    import gzip
+
+    from bias_eval import kev
+
+    monkeypatch.setattr(kev, "_is_identity_encoded", lambda _: True)
+    body = gzip.compress(json.dumps(response_for(build_questions(turn))).encode())
+
+    async def wire():
+        yield body
+
+    def handler(_):
+        return httpx.Response(200, content=wire(), headers={"Content-Encoding": "gzip"})
+
+    result = await classify(turn, handler)
+    assert triggers_of(result) == {(None, "invalid_response")}

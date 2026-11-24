@@ -349,10 +349,11 @@ async def evaluate_with_kev(
                 # Decided from the headers alone, before any body byte is read.
                 if not _is_identity_encoded(response):
                     raise _EncodedResponse
-                # Identity-only, so the streamed bytes are the raw wire bytes: the
-                # cap rejects an oversized body without buffering it in full.
+                # aiter_raw never decodes, so the cap counts wire bytes and an
+                # oversized body is rejected without buffering it in full, even
+                # if the identity check above were ever bypassed.
                 chunks, size = [], 0
-                async for chunk in response.aiter_bytes():
+                async for chunk in response.aiter_raw():
                     size += len(chunk)
                     if size > max_bytes:
                         raise ValueError("Kev response exceeds KEV_MAX_RESPONSE_BYTES")
