@@ -1,6 +1,7 @@
 """Async client for a self-hosted jaredpalmer/kev System One server."""
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import math
@@ -8,7 +9,11 @@ import time
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
-from shared.config import Config
+from shared.config import (
+    Config,
+    kev_base_url_is_allowed,
+    kev_max_response_bytes_is_valid,
+)
 from shared.models import BiasLabel, EvaluationInput, EvaluationResult
 from shared.tier1_models import (
     ChoiceAnswer,
@@ -91,6 +96,8 @@ async def evaluate_with_kev(
 
     An injected client is caller-owned and can be pooled by a service. Otherwise this
     call creates and closes its own client, including for the synchronous wrapper.
+    Redirects are refused per request even if an injected client was built with
+    follow_redirects=True; callers should still build it with redirects disabled.
     """
     started = time.monotonic()
     questions = build_questions(input)
@@ -122,31 +129,53 @@ async def evaluate_with_kev(
     try:
         timeout = Config.KEV_TIMEOUT_SECONDS
         if not math.isfinite(timeout) or timeout <= 0:
-            raise _InvalidConfig  # shared.config already warned once at import
+            # shared.config already warned once at import
+            raise _InvalidConfig("KEV_TIMEOUT_SECONDS is not a finite positive number")
+        if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
+            raise _InvalidConfig(
+                "KEV_BASE_URL must be https (plain http only to a loopback host)"
+            )
+        max_bytes = Config.KEV_MAX_RESPONSE_BYTES
+        if not kev_max_response_bytes_is_valid(max_bytes):
+            raise _InvalidConfig("KEV_MAX_RESPONSE_BYTES is not a valid byte count")
+        try:
+            url = httpx.URL(Config.KEV_BASE_URL.strip().rstrip("/") + "/v1/systemone")
+        except (httpx.InvalidURL, ValueError, TypeError):
+            raise _InvalidConfig("KEV_BASE_URL is not a valid URL") from None
         headers = {"Accept": "application/json"}
         if Config.KEV_API_KEY:
             headers["Authorization"] = f"Bearer {Config.KEV_API_KEY}"
         # Bound the entire operation, not just individual socket reads. No retries
         # in the synchronous encounter lane and no silent fallback to another model.
+        # Redirects are never followed (also on an injected client), so the
+        # transcript cannot be re-sent to another host; a 3xx is a transport error.
         async with asyncio.timeout(timeout):
-            if client is None:
-                async with httpx.AsyncClient(trust_env=False) as owned_client:
-                    response = await owned_client.post(
-                        Config.KEV_BASE_URL.rstrip("/") + "/v1/systemone",
+            async with contextlib.AsyncExitStack() as stack:
+                if client is None:
+                    client = await stack.enter_async_context(
+                        httpx.AsyncClient(trust_env=False, follow_redirects=False)
+                    )
+                response = await stack.enter_async_context(
+                    client.stream(
+                        "POST",
+                        url,
                         json=payload,
                         headers=headers,
                         timeout=timeout,
+                        follow_redirects=False,
                     )
-            else:
-                response = await client.post(
-                    Config.KEV_BASE_URL.rstrip("/") + "/v1/systemone",
-                    json=payload,
-                    headers=headers,
-                    timeout=timeout,
                 )
-            response.raise_for_status()
-            received = True
-            body = response.json()
+                response.raise_for_status()
+                received = True
+                # Stream with a cap so an oversized (or decompressed) body is
+                # rejected without being buffered in full.
+                chunks, size = [], 0
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ValueError("Kev response exceeds KEV_MAX_RESPONSE_BYTES")
+                    chunks.append(chunk)
+            body = json.loads(b"".join(chunks))
             if not isinstance(body, dict) or body.get("model") != Config.KEV_MODEL:
                 raise ValueError("Unexpected model")
             answers = _parse_answers(body, questions)
@@ -157,9 +186,9 @@ async def evaluate_with_kev(
         error_reason = "transport_error"
     except (httpx.HTTPError, httpx.InvalidURL):
         error, error_reason = "Kev connection failed", "transport_error"
-    except _InvalidConfig:
-        error = "KEV_TIMEOUT_SECONDS is not a finite positive number"
-        error_reason = "invalid_config"
+    except _InvalidConfig as exc:
+        # Our own fixed messages; they name a setting, never its value.
+        error, error_reason = str(exc), "invalid_config"
     except (ValueError, ValidationError, TypeError):
         # Do not echo exception strings: they can contain transcript text or keys.
         error = "Kev response was invalid"

@@ -23,7 +23,7 @@ from shared.tier1_models import ProbeAnchor
 
 @pytest.fixture(autouse=True)
 def kev_config(monkeypatch):
-    monkeypatch.setattr(Config, "KEV_BASE_URL", "http://kev.test:8009/")
+    monkeypatch.setattr(Config, "KEV_BASE_URL", "https://kev.test:8009/")
     monkeypatch.setattr(Config, "KEV_MODEL", "kev-latest")
     monkeypatch.setattr(Config, "KEV_CHECKPOINT", "test-checkpoint@revision")
     monkeypatch.setattr(Config, "KEV_API_KEY", "")
@@ -83,7 +83,7 @@ async def test_request_and_independent_probabilities(turn, monkeypatch):
 
     def handler(request):
         requests.append(request)
-        assert str(request.url) == "http://kev.test:8009/v1/systemone"
+        assert str(request.url) == "https://kev.test:8009/v1/systemone"
         assert request.headers["Authorization"] == "Bearer test-key"
         payload = json.loads(request.content)
         assert payload["state"]["student_message"] == turn.student_message
@@ -212,6 +212,7 @@ def test_sync_dispatch_closes_owned_http_client(turn, monkeypatch):
     client_class = httpx.AsyncClient
 
     def factory(**kwargs):
+        assert kwargs.get("follow_redirects") is False
         client = client_class(
             transport=httpx.MockTransport(
                 lambda _: httpx.Response(200, json=response_for(build_questions(turn)))
@@ -859,3 +860,110 @@ async def test_simulator_lightweight_error_is_not_printed_and_kev_fails_safe(
     captured = capsys.readouterr()
     assert _PRIVATE not in captured.out + captured.err + caplog.text
     assert "RuntimeError" in caplog.text
+
+
+# --- Round 3: transport hardening (base URL, redirects, response cap) ---------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://kev.test:8009",  # plain http to a non-loopback host
+        "http://127.0.0.1.evil.test",
+        "http://10.0.0.5:8009",
+        "",
+        "   ",
+        "kev.test:8009",  # no scheme
+        "/v1",  # relative
+        "ftp://127.0.0.1",
+        "https://",
+        "http://[::1",
+        "https://kev.test:notaport",
+    ],
+)
+@pytest.mark.asyncio
+async def test_disallowed_or_malformed_base_url_is_invalid_config(
+    turn, monkeypatch, url
+):
+    monkeypatch.setattr(Config, "KEV_BASE_URL", url)
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert result.tier1.status == "unavailable"
+    assert triggers_of(result) == {(None, "invalid_config")}
+    assert result.should_escalate
+    assert not url.strip() or url not in result.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://kev.test",
+        "http://localhost:8009",
+        "HTTP://LOCALHOST:8009/",
+        "http://127.0.0.2:8009",
+        "http://[::1]:8009",
+    ],
+)
+@pytest.mark.asyncio
+async def test_https_or_loopback_base_url_is_used(turn, monkeypatch, url):
+    monkeypatch.setattr(Config, "KEV_BASE_URL", url)
+    sent = []
+
+    def handler(request):
+        sent.append(request)
+        return httpx.Response(200, json=response_for(build_questions(turn)))
+
+    result = await classify(turn, handler)
+    assert len(sent) == 1
+    assert result.tier1.status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_redirects_are_not_followed_even_by_an_injected_client(turn):
+    sent = []
+
+    def handler(request):
+        sent.append(str(request.url))
+        return httpx.Response(307, headers={"Location": "https://elsewhere.test/x"})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, follow_redirects=True) as c:
+        result = await evaluate_with_kev(turn, client=c)
+    assert sent == ["https://kev.test:8009/v1/systemone"]
+    assert triggers_of(result) == {(None, "transport_error")}
+    assert result.should_escalate
+
+
+@pytest.mark.asyncio
+async def test_oversized_response_is_rejected_while_streaming(turn):
+    cap = Config.KEV_MAX_RESPONSE_BYTES
+    chunk = b" " * 65536
+    produced = []
+
+    async def body():
+        for _ in range((cap + 10 * 1024 * 1024) // len(chunk) + 1):
+            produced.append(len(chunk))
+            yield chunk
+
+    result = await classify(turn, lambda _: httpx.Response(200, content=body()))
+    assert triggers_of(result) == {(None, "invalid_response")}
+    assert result.should_escalate
+    assert sum(produced) <= cap + 2 * len(chunk)  # never buffered the full body
+
+
+@pytest.mark.asyncio
+async def test_response_at_the_cap_is_accepted(turn, monkeypatch):
+    raw = json.dumps(response_for(build_questions(turn))).encode()
+    monkeypatch.setattr(Config, "KEV_MAX_RESPONSE_BYTES", len(raw))
+    result = await classify(turn, lambda _: httpx.Response(200, content=raw))
+    assert result.tier1.status == "ok"
+    monkeypatch.setattr(Config, "KEV_MAX_RESPONSE_BYTES", len(raw) - 1)
+    result = await classify(turn, lambda _: httpx.Response(200, content=raw))
+    assert triggers_of(result) == {(None, "invalid_response")}
+
+
+@pytest.mark.parametrize("value", [float("nan"), 0, 10, 10**9, 2048.0, True])
+@pytest.mark.asyncio
+async def test_invalid_response_cap_is_invalid_config(turn, monkeypatch, value):
+    monkeypatch.setattr(Config, "KEV_MAX_RESPONSE_BYTES", value)
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_config")}

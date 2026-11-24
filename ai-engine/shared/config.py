@@ -3,9 +3,13 @@ ClinEQ Shared Configuration
 All tunable parameters in one place. Never hardcode these values elsewhere.
 """
 
+import ipaddress
 import logging
 import math
 import os
+import re
+from urllib.parse import urlsplit
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,6 +28,25 @@ def _env_float(name: str, default: float) -> float:
         return float(raw)
     except ValueError:
         return float("nan")
+
+
+_ASCII_INT = re.compile(r"\+?[0-9]+")
+
+
+def _env_int(name: str, default: int, low: int, high: int) -> float:
+    """Strict ASCII decimal integer within [low, high]; empty means unset.
+
+    Anything else (underscores, signs other than +, non-ASCII digits, hex,
+    exponents, out of range) becomes NaN so the setting is reported as
+    invalid_config instead of being silently reinterpreted.
+    """
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    if not _ASCII_INT.fullmatch(raw):
+        return float("nan")
+    value = int(raw)
+    return value if low <= value <= high else float("nan")
 
 
 class Config:
@@ -64,6 +87,11 @@ class Config:
     # Deployment-declared checkpoint/revision; the API model name is only an alias.
     KEV_CHECKPOINT: str = os.getenv("KEV_CHECKPOINT", "")
     KEV_TIMEOUT_SECONDS: float = _env_float("KEV_TIMEOUT_SECONDS", 1.5)
+    # Largest (decoded) Kev response body read before abstaining as invalid.
+    KEV_MAX_RESPONSE_BYTES_RANGE = (1024, 64 * 1024 * 1024)
+    KEV_MAX_RESPONSE_BYTES: int | float = _env_int(
+        "KEV_MAX_RESPONSE_BYTES", 1024 * 1024, *KEV_MAX_RESPONSE_BYTES_RANGE
+    )
     SUPPORTED_LIGHTWEIGHT_BACKENDS = ("kev", "ollama")
     CONFIDENCE_THRESHOLD: float = 0.80   # RAISED from 0.75 — reduce false positive reflections
     LIGHTWEIGHT_TEMPERATURE: float = 0.0  # LOWERED from 0.1 — max determinism for classification
@@ -107,6 +135,36 @@ class Config:
     PREREQUISITE_NODES_ENABLED: bool = False  # MVP1: unused
 
 
+def kev_base_url_is_allowed(url: object) -> bool:
+    """https anywhere; plain http only to a loopback host (localhost, 127/8, ::1).
+
+    Empty, relative or malformed URLs are rejected so they are reported as a
+    local configuration error, not as a Kev failure.
+    """
+    if not isinstance(url, str) or not url.strip():
+        return False
+    try:
+        parts = urlsplit(url.strip())
+        parts.port  # noqa: B018 - raises ValueError on a malformed port
+    except ValueError:
+        return False
+    host = parts.hostname
+    scheme = parts.scheme.lower()
+    if not host or scheme not in ("http", "https"):
+        return False
+    if scheme == "https" or host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def kev_max_response_bytes_is_valid(value: object) -> bool:
+    low, high = Config.KEV_MAX_RESPONSE_BYTES_RANGE
+    return type(value) is int and low <= value <= high
+
+
 def _warn_on_invalid_settings() -> None:
     """Warn once, at import, about settings that make Tier-1 abstain on every turn.
 
@@ -117,6 +175,17 @@ def _warn_on_invalid_settings() -> None:
             "LIGHTWEIGHT_BACKEND is not supported (use kev or ollama); "
             "Tier-1 will abstain and escalate every turn"
         )
+    if Config.LIGHTWEIGHT_BACKEND == "kev":
+        if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
+            logger.warning(
+                "KEV_BASE_URL must be an absolute https URL (plain http only to "
+                "a loopback host); Kev requests will abstain with invalid_config"
+            )
+        if not kev_max_response_bytes_is_valid(Config.KEV_MAX_RESPONSE_BYTES):
+            logger.warning(
+                "KEV_MAX_RESPONSE_BYTES is not a plain integer in the allowed "
+                "range; Kev requests will abstain with invalid_config"
+            )
     timeout = Config.KEV_TIMEOUT_SECONDS
     if not math.isfinite(timeout) or timeout <= 0:
         logger.warning(

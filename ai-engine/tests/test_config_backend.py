@@ -24,6 +24,7 @@ from shared.config import Config
 print(json.dumps({
     "backend": Config.LIGHTWEIGHT_BACKEND,
     "timeout": repr(Config.KEV_TIMEOUT_SECONDS),
+    "max_bytes": repr(Config.KEV_MAX_RESPONSE_BYTES),
 }))
 """
 
@@ -150,3 +151,43 @@ def test_invalid_settings_warn_once_per_process_not_per_import():
     lines = warnings_of(stderr)
     assert len(lines) == 2
     assert not any(_SENTINEL in line for line in lines)
+
+
+def test_response_cap_is_parsed_strictly():
+    assert load_config()["max_bytes"] == "1048576"
+    assert load_config(KEV_MAX_RESPONSE_BYTES=" 2048 ")["max_bytes"] == "2048"
+    for value in [
+        "1_048_576",
+        "1e6",
+        "0x400",
+        "\u0661\u0660\u0662\u0664",  # Arabic-Indic digits
+        "-5",
+        "0",
+        "10",
+        "2048.0",
+        str(10**9),
+    ]:
+        assert load_config(KEV_MAX_RESPONSE_BYTES=value)["max_bytes"] == "nan", value
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("KEV_BASE_URL", "http://" + _SENTINEL + ".example"),
+        ("KEV_BASE_URL", _SENTINEL),
+        ("KEV_MAX_RESPONSE_BYTES", _SENTINEL),
+    ],
+)
+def test_invalid_kev_transport_setting_warns_once_only_for_kev(name, value):
+    lines = warnings_of(run_probe(LIGHTWEIGHT_BACKEND="kev", **{name: value})[1])
+    assert len(lines) == 1
+    assert lines[0].startswith(f"WARNING:shared.config:{name} ")
+    assert _SENTINEL not in lines[0]
+    assert warnings_of(run_probe(**{name: value})[1]) == []  # ollama: not used
+
+
+@pytest.mark.parametrize(
+    "url", ["https://kev.example", "http://127.0.0.1:8009", "http://localhost"]
+)
+def test_allowed_kev_base_url_logs_no_warning(url):
+    assert warnings_of(run_probe(LIGHTWEIGHT_BACKEND="kev", KEV_BASE_URL=url)[1]) == []
