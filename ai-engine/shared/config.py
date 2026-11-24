@@ -3,10 +3,14 @@ ClinEQ Shared Configuration
 All tunable parameters in one place. Never hardcode these values elsewhere.
 """
 
+import logging
+import math
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def _env_float(name: str, default: float) -> float:
@@ -60,6 +64,7 @@ class Config:
     # Deployment-declared checkpoint/revision; the API model name is only an alias.
     KEV_CHECKPOINT: str = os.getenv("KEV_CHECKPOINT", "")
     KEV_TIMEOUT_SECONDS: float = _env_float("KEV_TIMEOUT_SECONDS", 1.5)
+    SUPPORTED_LIGHTWEIGHT_BACKENDS = ("kev", "ollama")
     CONFIDENCE_THRESHOLD: float = 0.80   # RAISED from 0.75 — reduce false positive reflections
     LIGHTWEIGHT_TEMPERATURE: float = 0.0  # LOWERED from 0.1 — max determinism for classification
     LIGHTWEIGHT_MAX_TOKENS: int = 400     # was 500 (Qwen is less verbose than Llama)
@@ -100,3 +105,24 @@ class Config:
     HEAVYWEIGHT_CONFIDENCE_THRESHOLD: float = 0.75  # For real-time mode reflection triggers
     COMPOUND_MATCHING_ENABLED: bool = False  # MVP1: top match only
     PREREQUISITE_NODES_ENABLED: bool = False  # MVP1: unused
+
+
+def _warn_on_invalid_settings() -> None:
+    """Warn once, at import, about settings that make Tier-1 abstain on every turn.
+
+    Only the setting's name and a short reason are logged, never its value.
+    """
+    if Config.LIGHTWEIGHT_BACKEND not in Config.SUPPORTED_LIGHTWEIGHT_BACKENDS:
+        logger.warning(
+            "LIGHTWEIGHT_BACKEND is not supported (use kev or ollama); "
+            "Tier-1 will abstain and escalate every turn"
+        )
+    timeout = Config.KEV_TIMEOUT_SECONDS
+    if not math.isfinite(timeout) or timeout <= 0:
+        logger.warning(
+            "KEV_TIMEOUT_SECONDS is not a finite positive number; "
+            "Kev requests will abstain with an invalid_config review trigger"
+        )
+
+
+_warn_on_invalid_settings()

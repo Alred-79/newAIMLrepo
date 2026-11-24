@@ -137,6 +137,11 @@ bounds the whole request; it is configurable and is not a latency guarantee.
   to answer its first request. That turn then returns `uncertain`, an unavailable
   Tier-1 result and `should_escalate=True` with a `transport_error` review trigger.
   This is by design (abstain, never guess), not a fault to retry around.
+- An unsupported `LIGHTWEIGHT_BACKEND`, or a `KEV_TIMEOUT_SECONDS` that is not a
+  finite positive number, is logged once as a warning when the engine imports its
+  configuration (the setting's name only, never its value). With a bad timeout every
+  Kev turn abstains without sending a request and records an `invalid_config` review
+  trigger, distinct from `invalid_response` (a malformed or incomplete Kev answer).
 - On a Tier-1 timeout or transport error the turn is escalated: when
   `HEAVYWEIGHT_ENABLED` is true (the default), the simulator then awaits the
   heavyweight evaluation before it returns the turn, so that turn waits for the

@@ -15,8 +15,9 @@ import pytest
 ENGINE = Path(__file__).resolve().parents[1]
 
 _PROBE = """
-import json, sys
+import json, logging, sys
 import dotenv
+logging.basicConfig(format="%(levelname)s:%(name)s:%(message)s")
 dotenv.load_dotenv = lambda *a, **k: False
 sys.path.insert(0, sys.argv[1])
 from shared.config import Config
@@ -27,7 +28,7 @@ print(json.dumps({
 """
 
 
-def load_config(**overrides):
+def run_probe(_script=_PROBE, **overrides):
     env = {
         k: v
         for k, v in os.environ.items()
@@ -35,7 +36,7 @@ def load_config(**overrides):
     }
     env.update(overrides)
     proc = subprocess.run(
-        [sys.executable, "-c", _PROBE, str(ENGINE)],
+        [sys.executable, "-c", _script, str(ENGINE)],
         env=env,
         capture_output=True,
         text=True,
@@ -43,7 +44,15 @@ def load_config(**overrides):
         check=False,  # the assert below reports stderr on failure
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
-    return json.loads(proc.stdout.strip().splitlines()[-1])
+    return json.loads(proc.stdout.strip().splitlines()[-1]), proc.stderr
+
+
+def load_config(**overrides):
+    return run_probe(**overrides)[0]
+
+
+def warnings_of(stderr):
+    return [line for line in stderr.splitlines() if line.startswith("WARNING:")]
 
 
 @pytest.mark.parametrize(
@@ -89,3 +98,55 @@ def test_valid_kev_timeout_is_parsed():
     assert load_config(KEV_TIMEOUT_SECONDS="4")["timeout"] == "4.0"
     assert load_config()["timeout"] == "1.5"
     assert load_config(KEV_TIMEOUT_SECONDS=" ")["timeout"] == "1.5"  # empty = unset
+
+
+# A distinctive value lets the tests prove it never reaches the log.
+_SENTINEL = "zq7-not-logged"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},
+        {"LIGHTWEIGHT_BACKEND": "kev"},
+        {"LIGHTWEIGHT_BACKEND": " Ollama "},
+        {"KEV_TIMEOUT_SECONDS": "4"},
+        {"KEV_TIMEOUT_SECONDS": " "},
+    ],
+    ids=["defaults", "kev", "ollama", "timeout", "blank-timeout"],
+)
+def test_valid_settings_log_no_warning(overrides):
+    assert warnings_of(run_probe(**overrides)[1]) == []
+
+
+def test_unsupported_backend_logs_one_warning_naming_only_the_setting():
+    lines = warnings_of(run_probe(LIGHTWEIGHT_BACKEND=_SENTINEL)[1])
+    assert len(lines) == 1
+    assert lines[0].startswith("WARNING:shared.config:LIGHTWEIGHT_BACKEND ")
+    assert _SENTINEL not in lines[0]
+
+
+@pytest.mark.parametrize("value", [_SENTINEL, "nan", "inf", "-1", "0"])
+def test_invalid_kev_timeout_logs_one_warning_naming_only_the_setting(value):
+    stderr = run_probe(LIGHTWEIGHT_BACKEND="kev", KEV_TIMEOUT_SECONDS=value)[1]
+    lines = warnings_of(stderr)
+    assert len(lines) == 1
+    assert lines[0].startswith("WARNING:shared.config:KEV_TIMEOUT_SECONDS ")
+    assert value not in lines[0]
+
+
+def test_invalid_settings_warn_once_per_process_not_per_import():
+    # Config is evaluated once per process; importing it again (as every engine
+    # module does) must not repeat the warnings.
+    script = _PROBE.replace(
+        "from shared.config import Config",
+        "from shared.config import Config\n"
+        "import shared.config\n"
+        "from shared.config import Config as _again",
+    )
+    stderr = run_probe(
+        script, LIGHTWEIGHT_BACKEND=_SENTINEL, KEV_TIMEOUT_SECONDS=_SENTINEL
+    )[1]
+    lines = warnings_of(stderr)
+    assert len(lines) == 2
+    assert not any(_SENTINEL in line for line in lines)

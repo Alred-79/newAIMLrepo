@@ -649,11 +649,49 @@ async def test_review_triggers_for_request_failures(turn, handler, reason):
     assert result.should_escalate
 
 
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
 @pytest.mark.asyncio
-async def test_invalid_config_is_reported_as_invalid_response(turn, monkeypatch):
-    monkeypatch.setattr(Config, "KEV_TIMEOUT_SECONDS", float("nan"))
+async def test_invalid_timeout_is_reported_as_invalid_config(
+    turn, monkeypatch, timeout
+):
+    # A local misconfiguration must be distinguishable from a Kev contract break.
+    monkeypatch.setattr(Config, "KEV_TIMEOUT_SECONDS", timeout)
     result = await classify(turn, lambda _: pytest.fail("must not send"))
-    assert triggers_of(result) == {(None, "invalid_response")}
+    assert result.tier1.status == "unavailable"
+    assert triggers_of(result) == {(None, "invalid_config")}
+    assert result.should_escalate
+
+
+def test_stored_round1_invalid_response_payload_still_loads():
+    from shared.tier1_models import Tier1Result
+
+    stored = {
+        "provider": "kev",
+        "status": "unavailable",
+        "model": "kev-latest",
+        "checkpoint": None,
+        "prompt_hash": "abc",
+        "latency_ms": 0,
+        "answers": {},
+        "error": "Kev configuration or response was invalid",
+        "review_triggers": [{"question": None, "reason": "invalid_response"}],
+    }
+    result = Tier1Result.model_validate(stored)
+    assert result.model_dump() == stored
+
+
+def test_invalid_config_trigger_round_trips():
+    from shared.tier1_models import Tier1Result
+
+    result = Tier1Result(
+        status="unavailable",
+        model="kev-latest",
+        prompt_hash="abc",
+        latency_ms=0,
+        error="KEV_TIMEOUT_SECONDS is not a finite positive number",
+        review_triggers=[{"question": None, "reason": "invalid_config"}],
+    )
+    assert Tier1Result.model_validate(result.model_dump()) == result
 
 
 @pytest.mark.parametrize(
@@ -696,6 +734,7 @@ def test_tier1_result_without_triggers_stays_backward_compatible():
         {"question": "", "reason": "flagged_choice"},
         {"question": "tone", "reason": "transport_error"},
         {"question": "tone", "reason": "invalid_response"},
+        {"question": "tone", "reason": "invalid_config"},
         {"question": "tone", "reason": "something_else"},
         {"question": "tone", "reason": "uncertain", "extra": 1},
         {"question": "missing", "reason": "uncertain"},

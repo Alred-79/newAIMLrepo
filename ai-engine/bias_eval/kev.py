@@ -23,6 +23,11 @@ from bias_eval.routing import compute_routing_decision
 
 _ANSWER = TypeAdapter(DecisionAnswer)
 
+
+class _InvalidConfig(Exception):
+    """A local setting makes the request impossible; nothing is sent to Kev."""
+
+
 # patient_bias_response has no flagged choices: a confident answer (including
 # "not_applicable", the expected answer when the patient expressed no prejudice)
 # requests review only through low confidence or "uncertain".
@@ -116,7 +121,7 @@ async def evaluate_with_kev(
     try:
         timeout = Config.KEV_TIMEOUT_SECONDS
         if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("Timeout must be finite and positive")
+            raise _InvalidConfig  # shared.config already warned once at import
         headers = {"Accept": "application/json"}
         if Config.KEV_API_KEY:
             headers["Authorization"] = f"Bearer {Config.KEV_API_KEY}"
@@ -150,9 +155,12 @@ async def evaluate_with_kev(
         error_reason = "transport_error"
     except (httpx.HTTPError, httpx.InvalidURL):
         error, error_reason = "Kev connection failed", "transport_error"
+    except _InvalidConfig:
+        error = "KEV_TIMEOUT_SECONDS is not a finite positive number"
+        error_reason = "invalid_config"
     except (ValueError, ValidationError, TypeError):
         # Do not echo exception strings: they can contain transcript text or keys.
-        error = "Kev configuration or response was invalid"
+        error = "Kev response was invalid"
         error_reason = "invalid_response"
 
     if error_reason:

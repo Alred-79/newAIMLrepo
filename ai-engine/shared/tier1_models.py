@@ -71,9 +71,10 @@ ReviewReason = Literal[
     "flagged_choice",  # a confident choice that requests review (e.g. "biased")
     "score_tail",  # an outer score level is at least as likely as the middle one
     "transport_error",  # timeout, connection failure or HTTP error status
-    "invalid_response",  # malformed/incomplete answers or invalid local config
+    "invalid_response",  # malformed or incomplete answers from Kev
+    "invalid_config",  # local misconfiguration (e.g. KEV_TIMEOUT_SECONDS); not sent
 ]
-_REQUEST_REASONS = {"transport_error", "invalid_response"}
+_REQUEST_REASONS = {"transport_error", "invalid_response", "invalid_config"}
 
 
 class ReviewTrigger(BaseModel):
