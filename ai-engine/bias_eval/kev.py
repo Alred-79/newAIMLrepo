@@ -116,8 +116,10 @@ def _flatten(text: str) -> str:
 # Kev labels the state's top-level fields with these names; a chart_context
 # key equal to one (after flattening, ignoring case) could pass for a field.
 _STATE_LABELS = frozenset(
-    {"student_message", "recent_context", "chart_context", "probe"}
+    {"student_message", "recent_context", "chart_context", "probe", "date_facts"}
 )
+# chart_context keys, at any depth, are plain ASCII snake_case identifiers.
+_CHART_KEY = re.compile(r"[a-z0-9_]{1,64}")
 _CONTAINERS = (dict, list, tuple)
 
 
@@ -199,6 +201,8 @@ def _flattened(value, reserved: frozenset = frozenset()):
     if type(value) is dict:
         copy = {}
         for key, item in value.items():
+            if reserved and not _CHART_KEY.fullmatch(key):
+                raise _InvalidInput
             flat_key = _flatten(key)
             if flat_key in copy:  # e.g. "a\nb" and "a b": never drop a value
                 raise _InvalidInput

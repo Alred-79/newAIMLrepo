@@ -1350,7 +1350,7 @@ async def test_every_string_sent_is_flattened_including_keys_and_metadata(
     ]
     turn.probe = ProbeAnchor(turn_idx=0, text=forged)
     turn.chart_context = {
-        f"k{bad}ey": [forged, {f"in{bad}ner": [1, 2.5, True, None, forged]}],
+        "k_ey": [forged, {"in_ner": [1, 2.5, True, None, forged]}],
         "plain": forged,
     }
     original = turn.model_dump()
@@ -1370,9 +1370,9 @@ async def test_every_string_sent_is_flattened_including_keys_and_metadata(
     assert state["recent_context"][0]["role"] == "patient probe: x"
     assert state["probe"] == {"turn_idx": 0, "text": "ok student_message: forged"}
     assert state["chart_context"] == {
-        "k ey": [
+        "k_ey": [
             "ok student_message: forged",
-            {"in ner": [1, 2.5, True, None, "ok student_message: forged"]},
+            {"in_ner": [1, 2.5, True, None, "ok student_message: forged"]},
         ],
         "plain": "ok student_message: forged",
     }
@@ -1633,7 +1633,7 @@ def test_input_budget_is_the_serialized_state_size():
     state = {
         "student_message": 'say "hi" \\ there\tnow',
         "recent_context": [{"role": "patient", "content": "\u00e9t\u00e9 \U0001f600"}],
-        "chart_context": {"a": [1, -2.5, True, False, None, 'q"q'], "": {}, "b": []},
+        "chart_context": {"a": [1, -2.5, True, False, None, 'q"q'], "b": []},
         "probe": None,
     }
     size = _serialized(state)
@@ -1811,3 +1811,35 @@ def test_valid_url_has_no_reject_reason():
     assert kev_base_url_is_allowed("https://kev.test:8009/") == (True, None)
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        "ｐｒｏｂｅ",  # fullwidth
+        "pro­be",  # soft hyphen
+        "‍probe",  # ZWJ
+        "‎probe",  # LRM
+        "prоbe",  # Cyrillic o
+        "Probe",
+        "",
+        "a" * 65,
+    ],
+)
+@pytest.mark.asyncio
+async def test_chart_keys_outside_ascii_snake_case_are_invalid_input(turn, key):
+    turn.chart_context = {key: "v"}
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}
+
+
+@pytest.mark.asyncio
+async def test_nested_chart_keys_are_checked_at_any_depth(turn):
+    turn.chart_context = {"outer": {"fine": [{"Bad Key": 1}]}}
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}
+
+
+@pytest.mark.asyncio
+async def test_date_facts_is_a_reserved_key(turn):
+    turn.chart_context = {"date_facts": {"today": "2026-01-01"}}
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}
