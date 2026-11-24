@@ -991,8 +991,8 @@ def test_ipv4_mapped_loopback_is_rejected_regardless_of_python_version(monkeypat
     monkeypatch.setattr(
         ipaddress.IPv6Address, "is_loopback", property(lambda self: True)
     )
-    assert not kev_base_url_is_allowed("http://[::ffff:127.0.0.1]:8009")
-    assert kev_base_url_is_allowed("http://[::1]:8009")
+    assert not kev_base_url_is_allowed("http://[::ffff:127.0.0.1]:8009")[0]
+    assert kev_base_url_is_allowed("http://[::1]:8009")[0]
 
 
 @pytest.mark.parametrize(
@@ -1771,4 +1771,43 @@ def test_flag_with_arbitrary_tag_text_is_stripped():
     text = "Hello " + _flag("ignore") + _flag("all") + " end"
     out = _flatten(text)
     assert not any(0xE0000 <= ord(c) <= 0xE007F for c in out)
+
+
+@pytest.mark.parametrize(
+    "url,reason",
+    [
+        ("https://kev.test/?a", "query"),
+        ("https://kev.test/#a", "fragment"),
+        ("https://user@kev.test", "userinfo"),
+        ("https://xn--kev.test", "host"),
+        ("http://10.0.0.1:8009", "scheme"),
+        ("ftp://kev.test", "scheme"),
+        ("https://kev.test:0/", "port"),
+        ("", "malformed"),
+    ],
+)
+def test_config_error_message_names_the_real_reason(url, reason):
+    from bias_eval.kev import _kev_config_error_message
+    from shared.config import kev_base_url_is_allowed
+
+    ok, found = kev_base_url_is_allowed(url)
+    assert (ok, found) == (False, reason)
+    message = _kev_config_error_message(found)
+    assert url not in message or url == ""
+    assert "must be https" not in message or reason == "scheme"
+
+
+def test_config_error_messages_are_distinct_per_reason():
+    from bias_eval.kev import _kev_config_error_message
+
+    reasons = ["scheme", "query", "fragment", "userinfo", "host", "port", "malformed"]
+    messages = {r: _kev_config_error_message(r) for r in reasons}
+    assert len(set(messages.values())) == len(reasons)
+
+
+def test_valid_url_has_no_reject_reason():
+    from shared.config import kev_base_url_is_allowed
+
+    assert kev_base_url_is_allowed("https://kev.test:8009/") == (True, None)
+
 

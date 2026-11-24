@@ -12,6 +12,7 @@ import httpx
 from pydantic import TypeAdapter, ValidationError
 from shared.config import (
     Config,
+    UrlRejectReason,
     kev_base_url_is_allowed,
     kev_max_input_chars_is_valid,
     kev_max_response_bytes_is_valid,
@@ -30,6 +31,22 @@ from bias_eval.keywords import scan_for_stigma_anchors
 from bias_eval.routing import compute_routing_decision
 
 _ANSWER = TypeAdapter(DecisionAnswer)
+
+
+_CONFIG_ERROR_MESSAGES: dict[str, str] = {
+    "scheme": "KEV_BASE_URL must be https (plain http only to a loopback host).",
+    "query": "KEV_BASE_URL must not contain a query string.",
+    "fragment": "KEV_BASE_URL must not contain a fragment.",
+    "userinfo": "KEV_BASE_URL must not contain a username or password.",
+    "host": "KEV_BASE_URL has a host that is not allowed.",
+    "port": "KEV_BASE_URL has an invalid port.",
+    "malformed": "KEV_BASE_URL is empty or not a valid absolute URL.",
+}
+
+
+def _kev_config_error_message(reason: UrlRejectReason | None) -> str:
+    """One fixed sentence per reason; never any part of the configured URL."""
+    return _CONFIG_ERROR_MESSAGES.get(reason or "malformed", _CONFIG_ERROR_MESSAGES["malformed"])
 
 
 class _InvalidConfig(Exception):
@@ -309,10 +326,9 @@ async def evaluate_with_kev(
             raise _InvalidConfig(
                 "KEV_TIMEOUT_SECONDS is not a number between 0.05 and 60 seconds"
             )
-        if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
-            raise _InvalidConfig(
-                "KEV_BASE_URL must be https (plain http only to a loopback host)"
-            )
+        url_ok, url_reason = kev_base_url_is_allowed(Config.KEV_BASE_URL)
+        if not url_ok:
+            raise _InvalidConfig(_kev_config_error_message(url_reason))
         max_bytes = Config.KEV_MAX_RESPONSE_BYTES
         if not kev_max_response_bytes_is_valid(max_bytes):
             raise _InvalidConfig("KEV_MAX_RESPONSE_BYTES is not a valid byte count")
