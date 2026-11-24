@@ -61,19 +61,26 @@ class _InvalidInput(Exception):
 
 # Kev renders the state as labelled lines, so a line break inside any string
 # could fake another field (e.g. a "student_message:" line). In every string
-# sent (dict keys, roles, timestamps, probe and chart text included), invisible
-# format characters (Unicode Cf: zero-width, bidi controls, soft hyphen, tags)
-# are deleted, every control character and line/paragraph separator becomes a
-# space, each whitespace run becomes one space, and the ends are trimmed. Same
-# rule for every student; only the copy sent to Kev changes, never the stored
-# transcript. Each pass is one character class, so this stays linear in the
-# text length (an earlier combined pattern backtracked quadratically).
-_FORMAT_CHAR = re.compile(  # Unicode 15.1 category Cf
-    "[\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e"
-    "\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff"
-    "\ufff9-\ufffb\U000110bd\U000110cd\U00013430-\U0001343f"
-    "\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001"
-    "\U000e0020-\U000e007f]"
+# sent (dict keys, roles, timestamps, probe and chart text included), every
+# control character and line/paragraph separator becomes a space, each
+# whitespace run becomes one space, and the ends are trimmed. Only the
+# invisible characters used to hide or reorder text are deleted: zero-width
+# space U+200B, bidi embeddings/overrides U+202A-202E and isolates
+# U+2066-2069, word joiner and invisible operators U+2060-2064, BOM U+FEFF,
+# interlinear annotation U+FFF9-FFFB, and the tag characters U+E0001 and
+# U+E0020-E007F. A well-formed subdivision flag (U+1F3F4, 3-7 tag letters or
+# digits, then cancel tag U+E007F) is kept whole. Every other format character
+# is kept, including ZWNJ/ZWJ (U+200C/U+200D: Persian, Indic and emoji
+# spelling), LRM/RLM, Arabic number signs and the soft hyphen, because
+# deleting them changes real words. Same rule for every student; only the copy
+# sent to Kev changes, never the stored transcript. Each pass is one
+# alternation without nested repetition (the flag branch is bounded), so this
+# stays linear in the text length (an earlier combined pattern backtracked
+# quadratically).
+_FORMAT_CHAR = re.compile(
+    "(\U0001f3f4[\U000e0030-\U000e0039\U000e0061-\U000e007a]{3,7}\U000e007f)"
+    "|[\u200b\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff"
+    "\ufff9-\ufffb\U000e0001\U000e0020-\U000e007f]"
 )
 _CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 _WHITESPACE_RUN = re.compile(r"\s+")
@@ -81,7 +88,7 @@ _MAX_STATE_DEPTH = 8  # container nesting levels allowed inside a state field
 
 
 def _flatten(text: str) -> str:
-    text = _CONTROL_CHAR.sub(" ", _FORMAT_CHAR.sub("", text))
+    text = _CONTROL_CHAR.sub(" ", _FORMAT_CHAR.sub(r"\1", text))
     return _WHITESPACE_RUN.sub(" ", text).strip()
 
 
