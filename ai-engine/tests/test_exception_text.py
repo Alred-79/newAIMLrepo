@@ -102,7 +102,7 @@ async def test_lightweight_parse_error_is_not_stored_in_brief_reason(
     from bias_eval import lightweight
 
     monkeypatch.setattr(Config, "LIGHTWEIGHT_BACKEND", "ollama")
-    # extract_json quotes the start of the text it could not parse.
+    # Model output the parser cannot use (it once quoted it in the error).
     monkeypatch.setattr(
         lightweight, "llm_completion", AsyncMock(return_value=f"no json {CANARY}")
     )
@@ -196,3 +196,60 @@ async def test_session_end_errors_are_not_stored(monkeypatch, capsys, caplog, co
     failing.assert_awaited_once()
     _assert_no_canary(capsys, caplog, result)
     assert "RuntimeError" in result["metadata"][key]
+
+
+def _load_demo_app():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "app.py"
+    spec = importlib.util.spec_from_file_location("clineq_demo_app", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_websocket_processing_error_sends_only_a_fixed_message_and_id(
+    monkeypatch, capsys, caplog
+):
+    import re
+
+    from fastapi.testclient import TestClient
+
+    demo = _load_demo_app()
+
+    class FailingSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def process_student_message(self, content):
+            raise RuntimeError(f"{CANARY} {content}")
+
+    monkeypatch.setitem(
+        demo.SCENARIOS, "s1", SimpleNamespace(patient_profile=SimpleNamespace(name="p"))
+    )
+    monkeypatch.setattr(demo, "SessionManager", FailingSession)
+    with caplog.at_level("DEBUG"):
+        with TestClient(demo.app).websocket_connect("/ws/chat/s1") as ws:
+            ws.receive_json()  # welcome message
+            ws.send_json({"type": "message", "content": CANARY})
+            payload = ws.receive_json()
+    assert payload["type"] == "error"
+    assert CANARY not in str(payload)
+    assert re.fullmatch(r"[0-9a-f]{12}", payload["error_id"])
+    assert payload["message"] == (
+        f"Processing error (reference {payload['error_id']}). Please try again."
+    )
+    logged = caplog.text
+    assert payload["error_id"] in logged
+    assert "RuntimeError" in logged
+    _assert_no_canary(capsys, caplog, payload)
+
+
+def test_extract_json_error_does_not_quote_model_text():
+    from shared.utils import extract_json
+
+    with pytest.raises(ValueError) as info:
+        extract_json(f"no json here: {CANARY}")
+    assert CANARY not in str(info.value)
+    assert CANARY not in repr(info.value)

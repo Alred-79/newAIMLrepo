@@ -36,4 +36,5 @@ def extract_json(text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    raise ValueError(f"Could not extract JSON from LLM response: {text[:200]}")
+    # The text is not quoted: model output can repeat the student's words.
+    raise ValueError("Could not extract JSON from LLM response")
