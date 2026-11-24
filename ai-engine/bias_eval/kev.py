@@ -12,6 +12,7 @@ import httpx
 from pydantic import TypeAdapter, ValidationError
 from shared.config import (
     Config,
+    UrlRejectReason,
     kev_base_url_is_allowed,
     kev_max_input_chars_is_valid,
     kev_max_response_bytes_is_valid,
@@ -30,6 +31,22 @@ from bias_eval.keywords import scan_for_stigma_anchors
 from bias_eval.routing import compute_routing_decision
 
 _ANSWER = TypeAdapter(DecisionAnswer)
+
+
+_CONFIG_ERROR_MESSAGES: dict[str, str] = {
+    "scheme": "KEV_BASE_URL must be https (plain http only to a loopback host).",
+    "query": "KEV_BASE_URL must not contain a query string.",
+    "fragment": "KEV_BASE_URL must not contain a fragment.",
+    "userinfo": "KEV_BASE_URL must not contain a username or password.",
+    "host": "KEV_BASE_URL has a host that is not allowed.",
+    "port": "KEV_BASE_URL has an invalid port.",
+    "malformed": "KEV_BASE_URL is empty or not a valid absolute URL.",
+}
+
+
+def _kev_config_error_message(reason: UrlRejectReason | None) -> str:
+    """One fixed sentence per reason; never any part of the configured URL."""
+    return _CONFIG_ERROR_MESSAGES.get(reason or "malformed", _CONFIG_ERROR_MESSAGES["malformed"])
 
 
 class _InvalidConfig(Exception):
@@ -68,17 +85,21 @@ class _InvalidInput(Exception):
 # space U+200B, bidi embeddings/overrides U+202A-202E and isolates
 # U+2066-2069, word joiner and invisible operators U+2060-2064, BOM U+FEFF,
 # interlinear annotation U+FFF9-FFFB, and the tag characters U+E0001 and
-# U+E0020-E007F. A well-formed subdivision flag (U+1F3F4, 3-7 tag letters or
-# digits, then cancel tag U+E007F) is kept whole. Every other format character
+# U+E0020-E007F. Only the three RGI subdivision flags (England, Scotland,
+# Wales: U+1F3F4, the tag letters gbeng, gbsct or gbwls, then cancel tag
+# U+E007F) are kept whole; any other tag sequence is deleted, so tag letters
+# cannot smuggle hidden text. Every other format character
 # is kept, including ZWNJ/ZWJ (U+200C/U+200D: Persian, Indic and emoji
 # spelling), LRM/RLM, Arabic number signs and the soft hyphen, because
 # deleting them changes real words. Same rule for every student; only the copy
 # sent to Kev changes, never the stored transcript. Each pass is one
-# alternation without nested repetition (the flag branch is bounded), so this
+# alternation without nested repetition (the flag branch is fixed-length), so this
 # stays linear in the text length (an earlier combined pattern backtracked
 # quadratically).
 _FORMAT_CHAR = re.compile(
-    "(\U0001f3f4[\U000e0030-\U000e0039\U000e0061-\U000e007a]{3,7}\U000e007f)"
+    "(\U0001f3f4\U000e0067\U000e0062"
+    "(?:\U000e0065\U000e006e\U000e0067|\U000e0073\U000e0063\U000e0074"
+    "|\U000e0077\U000e006c\U000e0073)\U000e007f)"
     "|[\u200b\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff"
     "\ufff9-\ufffb\U000e0001\U000e0020-\U000e007f]"
 )
@@ -95,8 +116,10 @@ def _flatten(text: str) -> str:
 # Kev labels the state's top-level fields with these names; a chart_context
 # key equal to one (after flattening, ignoring case) could pass for a field.
 _STATE_LABELS = frozenset(
-    {"student_message", "recent_context", "chart_context", "probe"}
+    {"student_message", "recent_context", "chart_context", "probe", "date_facts"}
 )
+# chart_context keys, at any depth, are plain ASCII snake_case identifiers.
+_CHART_KEY = re.compile(r"[a-z0-9_]{1,64}")
 _CONTAINERS = (dict, list, tuple)
 
 
@@ -178,6 +201,8 @@ def _flattened(value, reserved: frozenset = frozenset()):
     if type(value) is dict:
         copy = {}
         for key, item in value.items():
+            if reserved and not _CHART_KEY.fullmatch(key):
+                raise _InvalidInput
             flat_key = _flatten(key)
             if flat_key in copy:  # e.g. "a\nb" and "a b": never drop a value
                 raise _InvalidInput
@@ -305,10 +330,9 @@ async def evaluate_with_kev(
             raise _InvalidConfig(
                 "KEV_TIMEOUT_SECONDS is not a number between 0.05 and 60 seconds"
             )
-        if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
-            raise _InvalidConfig(
-                "KEV_BASE_URL must be https (plain http only to a loopback host)"
-            )
+        url_ok, url_reason = kev_base_url_is_allowed(Config.KEV_BASE_URL)
+        if not url_ok:
+            raise _InvalidConfig(_kev_config_error_message(url_reason))
         max_bytes = Config.KEV_MAX_RESPONSE_BYTES
         if not kev_max_response_bytes_is_valid(max_bytes):
             raise _InvalidConfig("KEV_MAX_RESPONSE_BYTES is not a valid byte count")

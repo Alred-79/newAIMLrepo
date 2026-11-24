@@ -43,7 +43,7 @@ async def startup():
             SCENARIO_INDICES[scenario.scenario_id] = index
             print(f"  Loaded: {scenario.scenario_id} ({len(scenario.content_nodes)} nodes)")
         except Exception as e:
-            print(f"  FAILED to load {json_file.name}: {e}")
+            logger.warning("startup step failed (%s)", type(e).__name__)
 
     # Warm up the models so the first user request isn't slow
     print("Warming up Ollama models...")
@@ -58,7 +58,7 @@ async def startup():
         await llm_embedding(["warmup test"])
         print("Models warmed up.")
     except Exception as e:
-        print(f"Warmup failed (non-fatal): {e}")
+        logger.warning("startup step failed (%s)", type(e).__name__)
 
     print(f"\n{len(SCENARIOS)} scenarios ready.\n")
 
@@ -121,7 +121,7 @@ async def chat_websocket(websocket: WebSocket, scenario_id: str):
     if scenario_id not in SCENARIOS:
         await websocket.send_json({
             "type": "error",
-            "message": f"Scenario '{scenario_id}' not found.",
+            "message": "Scenario not found.",
         })
         await websocket.close()
         return
@@ -162,19 +162,22 @@ async def chat_websocket(websocket: WebSocket, scenario_id: str):
             msg_type = data.get("type", "")
 
             if msg_type == "end_encounter":
-                end_result = await session.end_encounter()
-                # Store control data for future experimental sessions
-                if end_result.get("control_profile"):
-                    CONTROL_DATA[ws_id] = {
-                        "profile": end_result["control_profile"],
-                        "history": list(session.state.conversation_history),
-                        "scenario": scenario,
-                    }
-                await websocket.send_json({
-                    "type": "encounter_ended",
-                    "messages": end_result["messages"],
-                    "summary": end_result["metadata"],
-                })
+                try:
+                    end_result = await session.end_encounter()
+                    # Store control data for future experimental sessions
+                    if end_result.get("control_profile"):
+                        CONTROL_DATA[ws_id] = {
+                            "profile": end_result["control_profile"],
+                            "history": list(session.state.conversation_history),
+                            "scenario": scenario,
+                        }
+                    await websocket.send_json({
+                        "type": "encounter_ended",
+                        "messages": end_result["messages"],
+                        "summary": end_result["metadata"],
+                    })
+                except Exception as e:
+                    await websocket.send_json(_processing_error(e))
                 break
 
             elif msg_type == "message":

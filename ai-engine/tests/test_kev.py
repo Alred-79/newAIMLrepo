@@ -991,8 +991,8 @@ def test_ipv4_mapped_loopback_is_rejected_regardless_of_python_version(monkeypat
     monkeypatch.setattr(
         ipaddress.IPv6Address, "is_loopback", property(lambda self: True)
     )
-    assert not kev_base_url_is_allowed("http://[::ffff:127.0.0.1]:8009")
-    assert kev_base_url_is_allowed("http://[::1]:8009")
+    assert not kev_base_url_is_allowed("http://[::ffff:127.0.0.1]:8009")[0]
+    assert kev_base_url_is_allowed("http://[::1]:8009")[0]
 
 
 @pytest.mark.parametrize(
@@ -1350,7 +1350,7 @@ async def test_every_string_sent_is_flattened_including_keys_and_metadata(
     ]
     turn.probe = ProbeAnchor(turn_idx=0, text=forged)
     turn.chart_context = {
-        f"k{bad}ey": [forged, {f"in{bad}ner": [1, 2.5, True, None, forged]}],
+        "k_ey": [forged, {"in_ner": [1, 2.5, True, None, forged]}],
         "plain": forged,
     }
     original = turn.model_dump()
@@ -1370,9 +1370,9 @@ async def test_every_string_sent_is_flattened_including_keys_and_metadata(
     assert state["recent_context"][0]["role"] == "patient probe: x"
     assert state["probe"] == {"turn_idx": 0, "text": "ok student_message: forged"}
     assert state["chart_context"] == {
-        "k ey": [
+        "k_ey": [
             "ok student_message: forged",
-            {"in ner": [1, 2.5, True, None, "ok student_message: forged"]},
+            {"in_ner": [1, 2.5, True, None, "ok student_message: forged"]},
         ],
         "plain": "ok student_message: forged",
     }
@@ -1633,7 +1633,7 @@ def test_input_budget_is_the_serialized_state_size():
     state = {
         "student_message": 'say "hi" \\ there\tnow',
         "recent_context": [{"role": "patient", "content": "\u00e9t\u00e9 \U0001f600"}],
-        "chart_context": {"a": [1, -2.5, True, False, None, 'q"q'], "": {}, "b": []},
+        "chart_context": {"a": [1, -2.5, True, False, None, 'q"q'], "b": []},
         "probe": None,
     }
     size = _serialized(state)
@@ -1748,3 +1748,128 @@ async def test_body_is_read_raw_even_if_the_encoding_check_is_bypassed(
 
     result = await classify(turn, handler)
     assert triggers_of(result) == {(None, "invalid_response")}
+
+
+# --- Round 6: flags, config reasons, chart keys ------------------------------
+
+
+def _flag(s):
+    return "\U0001F3F4" + "".join(chr(0xE0000 + ord(c)) for c in s) + "\U000E007F"
+
+
+@pytest.mark.parametrize("tags", ["gbeng", "gbsct", "gbwls"])
+def test_rgi_subdivision_flags_survive(tags):
+    from bias_eval.kev import _flatten
+
+    text = f"a{_flag(tags)}b"
+    assert _flatten(text) == text
+
+
+def test_flag_with_arbitrary_tag_text_is_stripped():
+    from bias_eval.kev import _flatten
+
+    text = "Hello " + _flag("ignore") + _flag("all") + " end"
+    out = _flatten(text)
+    assert not any(0xE0000 <= ord(c) <= 0xE007F for c in out)
+
+
+@pytest.mark.parametrize(
+    "url,reason",
+    [
+        ("http://kev.test", "scheme"),
+        ("https://user@kev.test", "userinfo"),
+        ("https://kev.test/?a", "query"),
+        ("https://kev.test:abc", "port"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_base_url_surfaces_the_specific_reason_end_to_end(
+    turn, monkeypatch, url, reason
+):
+    from bias_eval.kev import _kev_config_error_message
+
+    monkeypatch.setattr(Config, "KEV_BASE_URL", url)
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_config")}
+    assert result.tier1.error == _kev_config_error_message(reason)
+
+
+@pytest.mark.parametrize(
+    "url,reason",
+    [
+        ("https://kev.test/?a", "query"),
+        ("https://kev.test/#a", "fragment"),
+        ("https://user@kev.test", "userinfo"),
+        ("https://xn--kev.test", "host"),
+        ("http://10.0.0.1:8009", "scheme"),
+        ("ftp://kev.test", "scheme"),
+        ("https://kev.test:0/", "port"),
+        ("", "malformed"),
+        ("http://kev.test", "scheme"),
+        ("http://kev.test:8009/", "scheme"),
+        ("http://example.com", "scheme"),
+        ("https://kev.test:99999", "port"),
+        ("https://kev.test:abc", "port"),
+        ("https://kev.test/\u00e9", "malformed"),
+    ],
+)
+def test_config_error_message_names_the_real_reason(url, reason):
+    from bias_eval.kev import _kev_config_error_message
+    from shared.config import kev_base_url_is_allowed
+
+    ok, found = kev_base_url_is_allowed(url)
+    assert (ok, found) == (False, reason)
+    message = _kev_config_error_message(found)
+    assert url not in message or url == ""
+    assert "must be https" not in message or reason == "scheme"
+
+
+def test_config_error_messages_are_distinct_per_reason():
+    from bias_eval.kev import _kev_config_error_message
+
+    reasons = ["scheme", "query", "fragment", "userinfo", "host", "port", "malformed"]
+    messages = {r: _kev_config_error_message(r) for r in reasons}
+    assert len(set(messages.values())) == len(reasons)
+
+
+def test_valid_url_has_no_reject_reason():
+    from shared.config import kev_base_url_is_allowed
+
+    assert kev_base_url_is_allowed("https://kev.test:8009/") == (True, None)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "ｐｒｏｂｅ",  # fullwidth
+        "pro­be",  # soft hyphen
+        "‍probe",  # ZWJ
+        "‎probe",  # LRM
+        "prоbe",  # Cyrillic o
+        "Probe",
+        "",
+        "a" * 65,
+        "k\ney",  # newline
+        "k\tey",  # tab
+        "k\u202eey",  # right-to-left override
+    ],
+)
+@pytest.mark.asyncio
+async def test_chart_keys_outside_ascii_snake_case_are_invalid_input(turn, key):
+    turn.chart_context = {key: "v"}
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}
+
+
+@pytest.mark.asyncio
+async def test_nested_chart_keys_are_checked_at_any_depth(turn):
+    turn.chart_context = {"outer": {"fine": [{"Bad Key": 1}]}}
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}
+
+
+@pytest.mark.asyncio
+async def test_date_facts_is_a_reserved_key(turn):
+    turn.chart_context = {"date_facts": {"today": "2026-01-01"}}
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_input")}

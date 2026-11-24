@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import re
+from typing import Literal
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
@@ -159,47 +160,74 @@ class Config:
     PREREQUISITE_NODES_ENABLED: bool = False  # MVP1: unused
 
 
-def kev_base_url_is_allowed(url: object) -> bool:
-    """https anywhere; plain http only to a loopback host (localhost, 127/8, ::1).
+UrlRejectReason = Literal[
+    "scheme", "query", "fragment", "userinfo", "host", "port", "malformed"
+]
+
+
+def kev_base_url_is_allowed(url: object) -> tuple[bool, UrlRejectReason | None]:
+    """Return (True, None) when the URL is usable, else (False, reason).
+
+    https anywhere; plain http only to a loopback host (localhost, 127/8, ::1).
 
     Rejected, so they are reported as a local configuration error rather than
     a Kev failure: empty, relative or malformed URLs; userinfo (user:pass@);
     any query or fragment ("?" or "#", which would swallow the /v1/systemone
-    suffix); any non-ASCII character, and IDNA (xn--) host labels; an empty
-    or zero port; "%" in the host (IPv6 zone ids, percent-encoded hosts); and
+    suffix); non-ASCII characters (in the host: "host"; elsewhere, such as
+    the path: "malformed"), and IDNA (xn--) host labels; an empty, zero,
+    non-numeric or out-of-range port; "%" in the host (IPv6 zone ids,
+    percent-encoded hosts); and
     IPv4-mapped IPv6 addresses such as [::ffff:127.0.0.1] for plain http
     (Python 3.13 calls that loopback, 3.11/3.12 do not; rejected on all).
+    The reason is a fixed category, never any part of the URL.
     """
     if not isinstance(url, str) or not url.strip():
-        return False
+        return False, "malformed"
     url = url.strip()
-    if not url.isascii() or "?" in url or "#" in url:
-        return False
+    if "?" in url:
+        return False, "query"
+    if "#" in url:
+        return False, "fragment"
     try:
         parts = urlsplit(url)
-        port = parts.port  # raises ValueError on a malformed port
     except ValueError:
-        return False
+        return False, "malformed"
+    try:
+        port = parts.port
+        bad_port = False
+    except ValueError:  # non-numeric or out-of-range (> 65535) port
+        port = None
+        bad_port = True
     host = parts.hostname
     scheme = parts.scheme.lower()
-    if not host or scheme not in ("http", "https"):
-        return False
+    if scheme not in ("http", "https"):
+        return False, "scheme"
+    if not host:
+        return False, "malformed"
     # userinfo would be sent as Basic auth, replacing the Bearer key.
-    if "@" in parts.netloc or "%" in parts.netloc:
-        return False
-    if port == 0 or (port is None and parts.netloc.endswith(":")):
-        return False
+    if "@" in parts.netloc:
+        return False, "userinfo"
+    if not parts.netloc.isascii() or "%" in parts.netloc:
+        return False, "host"
+    if bad_port or port == 0 or (port is None and parts.netloc.endswith(":")):
+        return False, "port"
+    if not url.isascii():  # non-ASCII outside the host (the path)
+        return False, "malformed"
     if any(label.startswith("xn--") for label in host.split(".")):
-        return False
+        return False, "host"
     if scheme == "https" or host == "localhost":
-        return True
+        return True, None
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return False
+        # A named host that is not localhost: https returned above, so this is
+        # plain http to a non-loopback host.
+        return False, "scheme"
     if address.version == 6 and address.ipv4_mapped is not None:
-        return False
-    return address.is_loopback
+        return False, "host"
+    if not address.is_loopback:
+        return False, "scheme"
+    return True, None
 
 
 def _int_in_range(value: object, bounds: tuple[int, int]) -> bool:
@@ -230,7 +258,8 @@ def _warn_on_invalid_settings() -> None:
             "Tier-1 will abstain and escalate every turn"
         )
     if Config.LIGHTWEIGHT_BACKEND == "kev":
-        if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
+        ok, _ = kev_base_url_is_allowed(Config.KEV_BASE_URL)
+        if not ok:
             logger.warning(
                 "KEV_BASE_URL must be an absolute https URL (plain http only to "
                 "a loopback host) with an ASCII host and no query or fragment; "
