@@ -10,6 +10,7 @@ None of these influence each other. All three are fire-and-forget.
 """
 
 import asyncio
+import logging
 import time
 
 from shared.models import (
@@ -25,6 +26,8 @@ from bias_eval.lightweight import evaluate_tone
 from bias_eval.routing import should_trigger_reflection_mvp1
 from bias_eval.clinical_keywords import has_clinical_action
 from bias_eval.heavyweight import evaluate_realtime
+
+logger = logging.getLogger(__name__)
 
 
 async def _run_lightweight(input: SimulatorInput) -> tuple[list[str], bool]:
@@ -60,8 +63,11 @@ async def _run_lightweight(input: SimulatorInput) -> tuple[list[str], bool]:
         return messages, should_escalate
 
     except Exception as e:
-        print(f"Lightweight eval error (non-fatal): {e}")
-        return [], False
+        # Log the class only: exception text can contain the student's message.
+        logger.warning("Lightweight eval failed (non-fatal): %s", type(e).__name__)
+        # Kev is a screening lane, so an unexpected failure must escalate rather
+        # than silently pass the turn. The legacy ollama path is unchanged.
+        return [], Config.LIGHTWEIGHT_BACKEND == "kev"
 
 
 async def _run_heavyweight(

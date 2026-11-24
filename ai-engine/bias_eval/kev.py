@@ -118,6 +118,7 @@ async def evaluate_with_kev(
     error = None
     error_reason = None
     answers = {}
+    received = False  # whether a response arrived, to attribute unexpected errors
     try:
         timeout = Config.KEV_TIMEOUT_SECONDS
         if not math.isfinite(timeout) or timeout <= 0:
@@ -144,6 +145,7 @@ async def evaluate_with_kev(
                     timeout=timeout,
                 )
             response.raise_for_status()
+            received = True
             body = response.json()
             if not isinstance(body, dict) or body.get("model") != Config.KEV_MODEL:
                 raise ValueError("Unexpected model")
@@ -162,6 +164,14 @@ async def evaluate_with_kev(
         # Do not echo exception strings: they can contain transcript text or keys.
         error = "Kev response was invalid"
         error_reason = "invalid_response"
+    except Exception:  # noqa: BLE001 - fail safe is the intent
+        # Fail safe on anything else (e.g. RecursionError from deeply nested JSON,
+        # or a transport raising RuntimeError/OSError): abstain and escalate.
+        # Never record str(exc): it can contain transcript text.
+        if received:
+            error, error_reason = "Kev response was invalid", "invalid_response"
+        else:
+            error, error_reason = "Kev request failed", "transport_error"
 
     if error_reason:
         triggers = [ReviewTrigger(reason=error_reason)]

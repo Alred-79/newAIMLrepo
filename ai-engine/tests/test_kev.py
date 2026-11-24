@@ -800,3 +800,62 @@ def test_unavailable_result_with_request_trigger_loads():
 
 def triggers_of_model(tier1):
     return {(t.question, t.reason) for t in tier1.review_triggers}
+
+
+# --- Round 3: fail safe on any unexpected error, never echo its text ---------
+
+_PRIVATE = "private transcript zq7"
+
+
+@pytest.mark.parametrize("error", [RuntimeError, KeyError, OSError, AttributeError])
+@pytest.mark.asyncio
+async def test_unexpected_transport_errors_abstain_without_echoing(turn, error):
+    def handler(request):
+        raise error(_PRIVATE)
+
+    result = await classify(turn, handler)
+    assert result.tier1.status == "unavailable"
+    assert triggers_of(result) == {(None, "transport_error")}
+    assert result.tier1.error == "Kev request failed"
+    assert result.should_escalate
+    assert _PRIVATE not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_deeply_nested_json_abstains_as_invalid_response(turn):
+    body = b"[" * 100000 + b"]" * 100000
+
+    result = await classify(turn, lambda _: httpx.Response(200, content=body))
+    assert result.tier1.status == "unavailable"
+    assert triggers_of(result) == {(None, "invalid_response")}
+    assert result.should_escalate
+
+
+def _sim_input(turn):
+    return SimpleNamespace(
+        student_message=turn.student_message,
+        state=SimpleNamespace(conversation_history=turn.recent_context),
+        scenario=SimpleNamespace(
+            category=turn.scenario_category, bias_direction=turn.bias_direction
+        ),
+    )
+
+
+@pytest.mark.parametrize("backend,escalate", [("kev", True), ("ollama", False)])
+@pytest.mark.asyncio
+async def test_simulator_lightweight_error_is_not_printed_and_kev_fails_safe(
+    turn, monkeypatch, capsys, caplog, backend, escalate
+):
+    from patient_sim import simulator
+
+    monkeypatch.setattr(Config, "LIGHTWEIGHT_BACKEND", backend)
+    monkeypatch.setattr(
+        simulator, "evaluate_tone", AsyncMock(side_effect=RuntimeError(_PRIVATE))
+    )
+    with caplog.at_level("DEBUG"):
+        messages, should_escalate = await simulator._run_lightweight(_sim_input(turn))
+    assert messages == []
+    assert should_escalate is escalate  # Legacy ollama behaviour is unchanged.
+    captured = capsys.readouterr()
+    assert _PRIVATE not in captured.out + captured.err + caplog.text
+    assert "RuntimeError" in caplog.text
