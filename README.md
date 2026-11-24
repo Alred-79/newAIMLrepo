@@ -127,16 +127,24 @@ bounds the whole request; it is configurable and is not a latency guarantee.
 
 ### Latency and deployment
 
-- The default `KEV_TIMEOUT_SECONDS=1.5` is a ceiling, not an expected latency. It
-  is chosen to fit inside the synchronous encounter lane (about 2 s per turn); the
-  Tier-1 target remains sub-200 ms, and no latency has been measured here.
+- Today Tier-1 runs inside the encounter turn: `patient_sim/simulator.py` starts it
+  in parallel with response assembly and waits for it before returning the turn.
+  One global `KEV_TIMEOUT_SECONDS` (default 1.5) bounds each Kev request. It is a
+  ceiling, not an expected latency; no latency has been measured in this
+  repository. The project's design budget of about 2 s per turn and sub-200 ms for
+  Tier-1 comes from the engineering handoff, not from measurements here.
 - A scale-to-zero or otherwise cold Kev deployment can take longer than the timeout
   to answer its first request. That turn then returns `uncertain`, an unavailable
   Tier-1 result and `should_escalate=True` with a `transport_error` review trigger.
   This is by design (abstain, never guess), not a fault to retry around.
-- When student reflection is deferred to the end of the encounter, the recommended
-  setup runs Tier-1 in the asynchronous post-encounter lane with a longer
-  `KEV_TIMEOUT_SECONDS`, so cold starts do not turn into escalations.
+- On a Tier-1 timeout or transport error the turn is escalated: when
+  `HEAVYWEIGHT_ENABLED` is true (the default), the simulator then awaits the
+  heavyweight evaluation before it returns the turn, so that turn waits for the
+  Kev timeout and then for the heavyweight call.
+- If student reflection is deferred to the end of the encounter, the recommended
+  future arrangement is to run Tier-1 in an asynchronous lane with a longer
+  timeout, so cold starts do not turn into escalations. This lane does not exist
+  in the code today.
 - `KEV_CHECKPOINT` is declared by the operator and recorded as-is. The client does
   not verify which weights the server actually loaded.
 
