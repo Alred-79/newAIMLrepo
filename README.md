@@ -107,8 +107,8 @@ confidence separately:
 | `attribution` | Choice | Axis 2: no attribution, evidence-based, stereotype-linked, or uncertain |
 | `epistemic_stance` | Choice | Provisional Axis 3 screening |
 | `affective_stance` | Choice | Provisional Axis 4 screening |
-| `patient_bias_response` | Choice | Separate Axis 5 construct; requested only for patient-to-student or bidirectional scenarios |
-| `probe_attention` | Score | Under / appropriate / over attention; requested only with an explicitly supplied, delivered probe |
+| `patient_bias_response` | Choice | Separate Axis 5 construct; asked in every scenario, with `not_applicable` when the patient expressed no prejudice, so the question set does not reveal the scenario type |
+| `probe_attention` | Score | Under / appropriate / over attention; requested only with an explicitly supplied, delivered probe (so its presence, and the question-bank hash, show that a probe was delivered) |
 
 Clinical action (Axis 1) is not model-scored here. No axis probabilities are
 multiplied or combined into a person-level score. For attention, inspect all three

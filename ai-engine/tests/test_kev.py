@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -124,7 +125,8 @@ async def test_patient_bias_response_is_separate_from_student_tone(turn):
     assert result.tone_label == BiasLabel.UNBIASED
     assert result.tier1.answers["patient_bias_response"].choice == "name_and_limit"
     turn.bias_direction = BiasDirection.STUDENT_TO_PATIENT
-    assert "patient_bias_response" not in build_questions(turn)
+    # Asked for every scenario; "not_applicable" covers the no-prejudice case.
+    assert "patient_bias_response" in build_questions(turn)
 
 
 @pytest.mark.asyncio
@@ -470,13 +472,92 @@ async def test_state_does_not_prime_detector_with_axis_or_direction(
     assert "scenario_category" not in serialized
     assert "bias_direction" not in serialized
     assert direction.value not in json.dumps(payload["state"])
-    expects_patient_question = direction in {
-        BiasDirection.PATIENT_TO_STUDENT,
-        BiasDirection.BIDIRECTIONAL,
+    assert "patient_bias_response" in payload["questions"]
+
+
+@pytest.mark.asyncio
+async def test_question_set_and_hash_do_not_depend_on_scenario(turn):
+    """The scenario type must not reach the detector through which questions are
+    asked: names, wording and prompt_hash are identical for every category and
+    direction."""
+    seen = {}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        return httpx.Response(200, json=response_for(payload["questions"]))
+
+    for category in ScenarioCategory:
+        for direction in BiasDirection:
+            turn.scenario_category = category
+            turn.bias_direction = direction
+            questions = build_questions(turn)
+            result = await classify(turn, handler)
+            seen[(category, direction)] = (
+                json.dumps(questions, sort_keys=True),
+                result.tier1.prompt_hash,
+            )
+    assert len(seen) == len(ScenarioCategory) * len(BiasDirection) == 28
+    assert len(set(seen.values())) == 1
+    (questions_json, _), *_ = seen.values()
+    assert set(json.loads(questions_json)) == {
+        "tone",
+        "attribution",
+        "epistemic_stance",
+        "affective_stance",
+        "patient_bias_response",
     }
-    assert ("patient_bias_response" in payload["questions"]) is (
-        expects_patient_question
+
+
+def test_patient_bias_question_offers_not_applicable_without_naming_an_axis(turn):
+    question = build_questions(turn)["patient_bias_response"]
+    assert "not_applicable" in question["criteria"]
+    text = (question["instructions"] + " ".join(question["criteria"].values())).lower()
+    for axis in ScenarioCategory:
+        assert not re.search(rf"\b{axis.value.replace('_', ' ')}\b", text)
+    for word in ("weight", "racis", "ageis", "religio", "gender", "zionis", "control"):
+        assert word not in text
+
+
+@pytest.mark.parametrize("direction", list(BiasDirection))
+@pytest.mark.asyncio
+async def test_confident_not_applicable_patient_bias_response_needs_no_review(
+    turn, direction
+):
+    turn.bias_direction = direction
+    body = response_for(
+        build_questions(turn), {"patient_bias_response": "not_applicable"}
     )
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert result.tier1.answers["patient_bias_response"].choice == "not_applicable"
+    assert result.tier1.review_triggers == []
+    assert not result.should_escalate
+
+
+@pytest.mark.asyncio
+async def test_uncertain_or_low_confidence_patient_bias_response_requests_review(turn):
+    body = response_for(build_questions(turn), {"patient_bias_response": "uncertain"})
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert triggers_of(result) == {("patient_bias_response", "uncertain")}
+    assert result.should_escalate
+
+    body = response_for(
+        build_questions(turn), {"patient_bias_response": "not_applicable"}
+    )
+    body["answers"]["patient_bias_response"]["confidence"] = 0.1
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert triggers_of(result) == {("patient_bias_response", "low_confidence")}
+    assert result.should_escalate
+
+
+@pytest.mark.asyncio
+async def test_not_applicable_patient_bias_response_does_not_mask_other_flags(turn):
+    body = response_for(
+        build_questions(turn),
+        {"patient_bias_response": "not_applicable", "tone": "biased"},
+    )
+    result = await classify(turn, lambda _: httpx.Response(200, json=body))
+    assert triggers_of(result) == {("tone", "flagged_choice")}
+    assert result.should_escalate
 
 
 def triggers_of(result):
