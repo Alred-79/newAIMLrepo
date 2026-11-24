@@ -78,8 +78,10 @@ runs, start the server with `--run jaredpalmer/kev-4b@<commit-revision>` and rec
 that same identifier in `KEV_CHECKPOINT`. The result records this operator-supplied
 identifier; it does not verify the deployed weights. An unset identifier is `null`.
 The repository's existing Ollama evaluator remains the default when
-`LIGHTWEIGHT_BACKEND` is unset; use `ollama` to select it explicitly. The environment
-template selects Kev for new setups.
+`LIGHTWEIGHT_BACKEND` is unset or empty; use `ollama` to select it explicitly. The
+environment template also selects `ollama` and leaves the Kev settings commented
+out; Kev is opt-in. Any other value (for example a typo) does not fall back to
+Ollama: Tier-1 returns `uncertain` with zero confidence and escalates.
 
 ```python
 from bias_eval.lightweight import evaluate_tone_sync

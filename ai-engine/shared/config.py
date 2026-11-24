@@ -36,7 +36,11 @@ class Config:
     EMBEDDING_MODEL: str = "ollama/mxbai-embed-large"
 
     # Lightweight evaluator
-    LIGHTWEIGHT_BACKEND: str = os.getenv("LIGHTWEIGHT_BACKEND", "ollama").lower()
+    # Unset or empty selects the legacy Ollama evaluator; any other unsupported
+    # value makes Tier-1 abstain and escalate (see bias_eval.lightweight).
+    LIGHTWEIGHT_BACKEND: str = (
+        (os.getenv("LIGHTWEIGHT_BACKEND") or "").strip().lower() or "ollama"
+    )
     KEV_BASE_URL: str = os.getenv("KEV_BASE_URL", "http://127.0.0.1:8009")
     KEV_API_KEY: str = os.getenv("KEV_API_KEY", "")
     KEV_MODEL: str = os.getenv("KEV_MODEL", "kev-latest")
