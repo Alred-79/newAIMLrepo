@@ -255,3 +255,24 @@ def test_extract_json_error_does_not_quote_model_text():
         extract_json(f"no json here: {CANARY}")
     assert CANARY not in str(info.value)
     assert CANARY not in repr(info.value)
+
+
+def test_end_encounter_error_sends_only_fixed_message_and_id(client_with_failing_end):
+    import json
+    import re
+
+    # session.end_encounter raises RuntimeError("CANARY end: patient said X")
+    msg = client_with_failing_end.send_end_and_receive()
+    assert "CANARY" not in json.dumps(msg)
+    assert re.fullmatch(r"[0-9a-f]{12}", msg["error_id"])
+
+
+def test_startup_errors_do_not_print_exception_text(capsys, failing_startup):
+    assert "CANARY" not in capsys.readouterr().out
+
+
+def test_unknown_scenario_id_is_not_echoed(client):
+    probe = "CANARY-scenario-id"
+    msg = client.connect_unknown(probe)
+    assert msg["type"] == "error"
+    assert probe not in str(msg)
