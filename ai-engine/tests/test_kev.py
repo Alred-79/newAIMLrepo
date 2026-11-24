@@ -889,6 +889,30 @@ async def test_simulator_lightweight_error_is_not_printed_and_kev_fails_safe(
         "https://:pass@kev.test",
         "https://@kev.test",
         "http://user:pass@127.0.0.1:8009",
+        # Round 5: query or fragment would swallow the /v1/systemone suffix
+        "https://kev.test#frag",
+        "https://kev.test/#",
+        "https://kev.test?x=1",
+        "https://kev.test?",
+        "https://kev.test/base?x=1#y",
+        # non-ASCII, fullwidth or IDNA (punycode) hosts
+        "https://\uff4bev.test",
+        "https://k\u00e9v.test",
+        "https://xn--kv-bja.test",
+        "https://kev.xn--p1ai",
+        "https://kev.test/p\u00e4th",
+        # empty or zero port
+        "https://kev.test:",
+        "https://kev.test:0",
+        "http://127.0.0.1:0",
+        "http://[::1]:",
+        # IPv6 zone id, percent-encoded host
+        "http://[fe80::1%25en0]:8009",
+        "http://[::1%25lo]:8009",
+        "https://%6bev.test",
+        # IPv4-mapped IPv6 loopback: rejected on every Python version
+        "http://[::ffff:127.0.0.1]:8009",
+        "http://[::ffff:7f00:1]",
     ],
 )
 @pytest.mark.asyncio
@@ -911,6 +935,9 @@ async def test_disallowed_or_malformed_base_url_is_invalid_config(
         "HTTP://LOCALHOST:8009/",
         "http://127.0.0.2:8009",
         "http://[::1]:8009",
+        "https://kev.test:8443/prefix/",
+        "  https://kev.test  ",
+        "http://127.0.0.1",
     ],
 )
 @pytest.mark.asyncio
@@ -925,6 +952,35 @@ async def test_https_or_loopback_base_url_is_used(turn, monkeypatch, url):
     result = await classify(turn, handler)
     assert len(sent) == 1
     assert result.tier1.status == "ok"
+
+
+def test_ipv4_mapped_loopback_is_rejected_regardless_of_python_version(monkeypatch):
+    # Python 3.13 reports ::ffff:127.0.0.1 as loopback, 3.11/3.12 do not;
+    # the check must not depend on that.
+    import ipaddress
+
+    from shared.config import kev_base_url_is_allowed
+
+    monkeypatch.setattr(
+        ipaddress.IPv6Address, "is_loopback", property(lambda self: True)
+    )
+    assert not kev_base_url_is_allowed("http://[::ffff:127.0.0.1]:8009")
+    assert kev_base_url_is_allowed("http://[::1]:8009")
+
+
+@pytest.mark.parametrize(
+    "url", ["https://kev.test?token=SECRETQ", "https://kev.test#SECRETQ"]
+)
+def test_bad_base_url_warning_names_only_the_setting(monkeypatch, caplog, url):
+    from shared import config
+
+    monkeypatch.setattr(Config, "LIGHTWEIGHT_BACKEND", "kev")
+    monkeypatch.setattr(Config, "KEV_BASE_URL", url)
+    with caplog.at_level("DEBUG"):
+        config._warn_on_invalid_settings()
+    messages = [r.getMessage() for r in caplog.records if "KEV_BASE_URL" in r.message]
+    assert len(messages) == 1
+    assert "SECRETQ" not in caplog.text
 
 
 @pytest.mark.asyncio

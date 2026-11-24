@@ -162,15 +162,22 @@ class Config:
 def kev_base_url_is_allowed(url: object) -> bool:
     """https anywhere; plain http only to a loopback host (localhost, 127/8, ::1).
 
-    Empty, relative or malformed URLs, and URLs with userinfo (user:pass@),
-    are rejected so they are reported as a local configuration error, not as
-    a Kev failure.
+    Rejected, so they are reported as a local configuration error rather than
+    a Kev failure: empty, relative or malformed URLs; userinfo (user:pass@);
+    any query or fragment ("?" or "#", which would swallow the /v1/systemone
+    suffix); any non-ASCII character, and IDNA (xn--) host labels; an empty
+    or zero port; "%" in the host (IPv6 zone ids, percent-encoded hosts); and
+    IPv4-mapped IPv6 addresses such as [::ffff:127.0.0.1] for plain http
+    (Python 3.13 calls that loopback, 3.11/3.12 do not; rejected on all).
     """
     if not isinstance(url, str) or not url.strip():
         return False
+    url = url.strip()
+    if not url.isascii() or "?" in url or "#" in url:
+        return False
     try:
-        parts = urlsplit(url.strip())
-        parts.port  # noqa: B018 - raises ValueError on a malformed port
+        parts = urlsplit(url)
+        port = parts.port  # raises ValueError on a malformed port
     except ValueError:
         return False
     host = parts.hostname
@@ -178,14 +185,21 @@ def kev_base_url_is_allowed(url: object) -> bool:
     if not host or scheme not in ("http", "https"):
         return False
     # userinfo would be sent as Basic auth, replacing the Bearer key.
-    if "@" in parts.netloc:
+    if "@" in parts.netloc or "%" in parts.netloc:
+        return False
+    if port == 0 or (port is None and parts.netloc.endswith(":")):
+        return False
+    if any(label.startswith("xn--") for label in host.split(".")):
         return False
     if scheme == "https" or host == "localhost":
         return True
     try:
-        return ipaddress.ip_address(host).is_loopback
+        address = ipaddress.ip_address(host)
     except ValueError:
         return False
+    if address.version == 6 and address.ipv4_mapped is not None:
+        return False
+    return address.is_loopback
 
 
 def _int_in_range(value: object, bounds: tuple[int, int]) -> bool:
@@ -219,7 +233,8 @@ def _warn_on_invalid_settings() -> None:
         if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
             logger.warning(
                 "KEV_BASE_URL must be an absolute https URL (plain http only to "
-                "a loopback host); Kev requests will abstain with invalid_config"
+                "a loopback host) with an ASCII host and no query or fragment; "
+                "Kev requests will abstain with invalid_config"
             )
         if not kev_max_response_bytes_is_valid(Config.KEV_MAX_RESPONSE_BYTES):
             logger.warning(
