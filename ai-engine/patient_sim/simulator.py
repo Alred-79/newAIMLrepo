@@ -110,7 +110,8 @@ async def _run_heavyweight(
         return []
 
     except Exception as e:
-        print(f"Heavyweight eval error (non-fatal): {e}")
+        # Class name only: the message can quote the student.
+        logger.warning("Heavyweight eval failed (non-fatal): %s", type(e).__name__)
         return []
 
 
