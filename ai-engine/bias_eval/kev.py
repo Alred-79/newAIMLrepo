@@ -78,6 +78,9 @@ async def evaluate_with_kev(
             json.dumps(questions, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
     )
+    # The detector must not be told the bias axis, the scenario category (including
+    # "control") or the bias direction. bias_direction is used only locally, in
+    # build_questions, to decide which questions to ask.
     payload = {
         "model": Config.KEV_MODEL,
         "state": {
@@ -85,8 +88,6 @@ async def evaluate_with_kev(
             "recent_context": [
                 m.model_dump(exclude_none=True) for m in input.recent_context
             ],
-            "scenario_category": input.scenario_category.value,
-            "bias_direction": input.bias_direction.value,
             "chart_context": input.chart_context,
             "probe": input.probe.model_dump() if input.probe else None,
         },

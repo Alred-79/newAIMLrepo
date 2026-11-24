@@ -440,3 +440,40 @@ async def test_legacy_backend_and_unknown_backend(turn, monkeypatch):
     assert result.tone_label == BiasLabel.UNCERTAIN
     assert result.should_escalate
     legacy.assert_awaited_once()
+
+
+@pytest.mark.parametrize("direction", list(BiasDirection))
+@pytest.mark.parametrize("category", list(ScenarioCategory))
+@pytest.mark.asyncio
+async def test_state_does_not_prime_detector_with_axis_or_direction(
+    turn, category, direction
+):
+    turn.scenario_category = category
+    turn.bias_direction = direction
+    seen = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        seen.append(payload)
+        return httpx.Response(200, json=response_for(payload["questions"]))
+
+    result = await classify(turn, handler)
+    assert result.tier1.status == "ok"
+    (payload,) = seen
+    assert set(payload["state"]) == {
+        "student_message",
+        "recent_context",
+        "chart_context",
+        "probe",
+    }
+    serialized = json.dumps(payload)
+    assert "scenario_category" not in serialized
+    assert "bias_direction" not in serialized
+    assert direction.value not in json.dumps(payload["state"])
+    expects_patient_question = direction in {
+        BiasDirection.PATIENT_TO_STUDENT,
+        BiasDirection.BIDIRECTIONAL,
+    }
+    assert ("patient_bias_response" in payload["questions"]) is (
+        expects_patient_question
+    )
