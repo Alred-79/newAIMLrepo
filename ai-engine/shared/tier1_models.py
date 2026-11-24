@@ -65,6 +65,45 @@ class ScoreAnswer(BaseModel):
 DecisionAnswer = Annotated[ChoiceAnswer | ScoreAnswer, Field(discriminator="type")]
 
 
+ReviewReason = Literal[
+    "low_confidence",  # provider confidence below Config.CONFIDENCE_THRESHOLD
+    "uncertain",  # the model chose the "uncertain" option
+    "flagged_choice",  # a confident choice that requests review (e.g. "biased")
+    "score_tail",  # an outer score level is at least as likely as the middle one
+    "transport_error",  # timeout, connection failure or HTTP error status
+    "invalid_response",  # malformed or incomplete answers from Kev
+    "invalid_config",  # local misconfiguration (e.g. KEV_TIMEOUT_SECONDS); not sent
+    "input_too_long",  # transcript text over KEV_MAX_INPUT_CHARS; not sent
+    # a state value that cannot be sent as text (set, bytes, NaN/inf, object,
+    # non-string key, keys colliding after flattening, nesting over 8); not sent
+    "invalid_input",
+]
+_REQUEST_REASONS = {
+    "transport_error",
+    "invalid_response",
+    "invalid_config",
+    "input_too_long",
+    "invalid_input",
+}
+
+
+class ReviewTrigger(BaseModel):
+    """Why Tier-1 requested review: one question (or the request) and one reason."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str | None = Field(default=None, min_length=1)
+    reason: ReviewReason
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        if (self.reason in _REQUEST_REASONS) != (self.question is None):
+            raise ValueError(
+                "Request-level reasons have no question; answer-level reasons need one"
+            )
+        return self
+
+
 class Tier1Result(BaseModel):
     provider: Literal["kev"] = "kev"
     status: Literal["ok", "unavailable"]
@@ -74,3 +113,20 @@ class Tier1Result(BaseModel):
     latency_ms: int = Field(ge=0)
     answers: dict[str, DecisionAnswer] = Field(default_factory=dict)
     error: str | None = None
+    # Every reason review was requested, so escalation rates and causes can be
+    # measured. Empty means Tier-1 did not request review.
+    review_triggers: list[ReviewTrigger] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_triggers(self):
+        for trigger in self.review_triggers:
+            if trigger.question is not None and trigger.question not in self.answers:
+                raise ValueError("A review trigger must name an answered question")
+        # A failed request is never "ok". The converse is not enforced, so legacy
+        # rows stored as unavailable with an error and no triggers still load.
+        if self.status == "ok" and (
+            self.error is not None
+            or any(t.reason in _REQUEST_REASONS for t in self.review_triggers)
+        ):
+            raise ValueError("An ok result cannot carry an error or request failure")
+        return self

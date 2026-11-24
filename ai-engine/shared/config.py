@@ -3,10 +3,62 @@ ClinEQ Shared Configuration
 All tunable parameters in one place. Never hardcode these values elsewhere.
 """
 
+import ipaddress
+import logging
+import math
 import os
+import re
+from urllib.parse import urlsplit
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+
+# Plain ASCII decimal or scientific notation only. float() alone would also
+# accept underscores ("1_0"), non-ASCII digits, "nan" and "inf".
+_ASCII_DECIMAL = re.compile(
+    r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", re.ASCII
+)
+
+
+def _env_float(name: str, default: float, low: float, high: float) -> float:
+    """Strict finite decimal within [low, high]; empty means unset.
+
+    Anything else becomes NaN instead of raising at import, so a bad optional
+    setting cannot stop the whole engine; callers reject it at call time
+    (evaluate_with_kev abstains with invalid_config).
+    """
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    if not _ASCII_DECIMAL.fullmatch(raw):
+        return float("nan")
+    value = float(raw)
+    if not (math.isfinite(value) and low <= value <= high):
+        return float("nan")
+    return value
+
+
+_ASCII_INT = re.compile(r"\+?[0-9]+")
+
+
+def _env_int(name: str, default: int, low: int, high: int) -> float:
+    """Strict ASCII decimal integer within [low, high]; empty means unset.
+
+    Anything else (underscores, signs other than +, non-ASCII digits, hex,
+    exponents, out of range) becomes NaN so the setting is reported as
+    invalid_config instead of being silently reinterpreted.
+    """
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    if not _ASCII_INT.fullmatch(raw):
+        return float("nan")
+    value = int(raw)
+    return value if low <= value <= high else float("nan")
 
 
 class Config:
@@ -36,13 +88,35 @@ class Config:
     EMBEDDING_MODEL: str = "ollama/mxbai-embed-large"
 
     # Lightweight evaluator
-    LIGHTWEIGHT_BACKEND: str = os.getenv("LIGHTWEIGHT_BACKEND", "ollama").lower()
+    # Unset or empty selects the legacy Ollama evaluator; any other unsupported
+    # value makes Tier-1 abstain and escalate (see bias_eval.lightweight).
+    LIGHTWEIGHT_BACKEND: str = (
+        (os.getenv("LIGHTWEIGHT_BACKEND") or "").strip().lower() or "ollama"
+    )
     KEV_BASE_URL: str = os.getenv("KEV_BASE_URL", "http://127.0.0.1:8009")
     KEV_API_KEY: str = os.getenv("KEV_API_KEY", "")
     KEV_MODEL: str = os.getenv("KEV_MODEL", "kev-latest")
     # Deployment-declared checkpoint/revision; the API model name is only an alias.
     KEV_CHECKPOINT: str = os.getenv("KEV_CHECKPOINT", "")
-    KEV_TIMEOUT_SECONDS: float = float(os.getenv("KEV_TIMEOUT_SECONDS", "1.5"))
+    # Whole-request deadline in seconds (connect, send and read included).
+    KEV_TIMEOUT_SECONDS_RANGE = (0.05, 60.0)
+    KEV_TIMEOUT_SECONDS: float = _env_float(
+        "KEV_TIMEOUT_SECONDS", 1.5, *KEV_TIMEOUT_SECONDS_RANGE
+    )
+    # Largest (decoded) Kev response body read before abstaining as invalid.
+    KEV_MAX_RESPONSE_BYTES_RANGE = (1024, 64 * 1024 * 1024)
+    KEV_MAX_RESPONSE_BYTES: int | float = _env_int(
+        "KEV_MAX_RESPONSE_BYTES", 1024 * 1024, *KEV_MAX_RESPONSE_BYTES_RANGE
+    )
+    # Combined characters of transcript text sent to Kev (student message, recent
+    # context, probe text, serialized chart context). Longer input is not sent and
+    # abstains with input_too_long. The default is a conservative guard well below
+    # Kev's validated 8,192-token window; it is not a tokenizer-exact limit.
+    KEV_MAX_INPUT_CHARS_RANGE = (200, 30000)
+    KEV_MAX_INPUT_CHARS: int | float = _env_int(
+        "KEV_MAX_INPUT_CHARS", 12000, *KEV_MAX_INPUT_CHARS_RANGE
+    )
+    SUPPORTED_LIGHTWEIGHT_BACKENDS = ("kev", "ollama")
     CONFIDENCE_THRESHOLD: float = 0.80   # RAISED from 0.75 — reduce false positive reflections
     LIGHTWEIGHT_TEMPERATURE: float = 0.0  # LOWERED from 0.1 — max determinism for classification
     LIGHTWEIGHT_MAX_TOKENS: int = 400     # was 500 (Qwen is less verbose than Llama)
@@ -83,3 +157,101 @@ class Config:
     HEAVYWEIGHT_CONFIDENCE_THRESHOLD: float = 0.75  # For real-time mode reflection triggers
     COMPOUND_MATCHING_ENABLED: bool = False  # MVP1: top match only
     PREREQUISITE_NODES_ENABLED: bool = False  # MVP1: unused
+
+
+def kev_base_url_is_allowed(url: object) -> bool:
+    """https anywhere; plain http only to a loopback host (localhost, 127/8, ::1).
+
+    Rejected, so they are reported as a local configuration error rather than
+    a Kev failure: empty, relative or malformed URLs; userinfo (user:pass@);
+    any query or fragment ("?" or "#", which would swallow the /v1/systemone
+    suffix); any non-ASCII character, and IDNA (xn--) host labels; an empty
+    or zero port; "%" in the host (IPv6 zone ids, percent-encoded hosts); and
+    IPv4-mapped IPv6 addresses such as [::ffff:127.0.0.1] for plain http
+    (Python 3.13 calls that loopback, 3.11/3.12 do not; rejected on all).
+    """
+    if not isinstance(url, str) or not url.strip():
+        return False
+    url = url.strip()
+    if not url.isascii() or "?" in url or "#" in url:
+        return False
+    try:
+        parts = urlsplit(url)
+        port = parts.port  # raises ValueError on a malformed port
+    except ValueError:
+        return False
+    host = parts.hostname
+    scheme = parts.scheme.lower()
+    if not host or scheme not in ("http", "https"):
+        return False
+    # userinfo would be sent as Basic auth, replacing the Bearer key.
+    if "@" in parts.netloc or "%" in parts.netloc:
+        return False
+    if port == 0 or (port is None and parts.netloc.endswith(":")):
+        return False
+    if any(label.startswith("xn--") for label in host.split(".")):
+        return False
+    if scheme == "https" or host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if address.version == 6 and address.ipv4_mapped is not None:
+        return False
+    return address.is_loopback
+
+
+def _int_in_range(value: object, bounds: tuple[int, int]) -> bool:
+    return type(value) is int and bounds[0] <= value <= bounds[1]
+
+
+def kev_timeout_is_valid(value: object) -> bool:
+    low, high = Config.KEV_TIMEOUT_SECONDS_RANGE
+    return type(value) in (int, float) and math.isfinite(value) and low <= value <= high
+
+
+def kev_max_response_bytes_is_valid(value: object) -> bool:
+    return _int_in_range(value, Config.KEV_MAX_RESPONSE_BYTES_RANGE)
+
+
+def kev_max_input_chars_is_valid(value: object) -> bool:
+    return _int_in_range(value, Config.KEV_MAX_INPUT_CHARS_RANGE)
+
+
+def _warn_on_invalid_settings() -> None:
+    """Warn once, at import, about settings that make Tier-1 abstain on every turn.
+
+    Only the setting's name and a short reason are logged, never its value.
+    """
+    if Config.LIGHTWEIGHT_BACKEND not in Config.SUPPORTED_LIGHTWEIGHT_BACKENDS:
+        logger.warning(
+            "LIGHTWEIGHT_BACKEND is not supported (use kev or ollama); "
+            "Tier-1 will abstain and escalate every turn"
+        )
+    if Config.LIGHTWEIGHT_BACKEND == "kev":
+        if not kev_base_url_is_allowed(Config.KEV_BASE_URL):
+            logger.warning(
+                "KEV_BASE_URL must be an absolute https URL (plain http only to "
+                "a loopback host) with an ASCII host and no query or fragment; "
+                "Kev requests will abstain with invalid_config"
+            )
+        if not kev_max_response_bytes_is_valid(Config.KEV_MAX_RESPONSE_BYTES):
+            logger.warning(
+                "KEV_MAX_RESPONSE_BYTES is not a plain integer in the allowed "
+                "range; Kev requests will abstain with invalid_config"
+            )
+        if not kev_max_input_chars_is_valid(Config.KEV_MAX_INPUT_CHARS):
+            logger.warning(
+                "KEV_MAX_INPUT_CHARS is not a plain integer in the allowed "
+                "range; Kev requests will abstain with invalid_config"
+            )
+        if not kev_timeout_is_valid(Config.KEV_TIMEOUT_SECONDS):
+            # No digits in the message, so a rejected value can never appear.
+            logger.warning(
+                "KEV_TIMEOUT_SECONDS is not a plain decimal number of seconds in "
+                "the allowed range; Kev requests will abstain with invalid_config"
+            )
+
+
+_warn_on_invalid_settings()

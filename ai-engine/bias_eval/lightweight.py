@@ -85,7 +85,8 @@ async def evaluate_tone(input: EvaluationInput) -> EvaluationResult:
             tone_label=BiasLabel.UNCERTAIN,
             tone_confidence=0.0,
             stigma_anchors_found=stigma_anchors,
-            brief_reason=f"LLM call failed: {str(e)}",
+            # Class name only: exception text can quote the student.
+            brief_reason=f"LLM call failed ({type(e).__name__})",
             should_escalate=True,
             raw_llm_response=None,
         )
@@ -103,7 +104,8 @@ async def evaluate_tone(input: EvaluationInput) -> EvaluationResult:
             tone_label=BiasLabel.UNCERTAIN,
             tone_confidence=0.0,
             stigma_anchors_found=stigma_anchors,
-            brief_reason=f"Failed to parse LLM response: {str(e)}",
+            # Class name only: extract_json quotes the model's text.
+            brief_reason=f"Failed to parse LLM response ({type(e).__name__})",
             should_escalate=True,
             raw_llm_response=raw_response,
         )

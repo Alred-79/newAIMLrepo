@@ -200,7 +200,8 @@ class SessionManager:
                 result["control_profile"] = profile
                 result["metadata"]["control_profile_generated"] = True
             except Exception as e:
-                result["metadata"]["control_profile_error"] = str(e)
+                # Class name only: exception text can quote the student.
+                result["metadata"]["control_profile_error"] = type(e).__name__
 
         elif self.control_history and self.control_scenario:
             # Experimental scenario — generate delta analysis
@@ -215,6 +216,6 @@ class SessionManager:
                 result["delta_analysis"] = delta.model_dump()
                 result["metadata"]["delta_analysis_generated"] = True
             except Exception as e:
-                result["metadata"]["delta_analysis_error"] = str(e)
+                result["metadata"]["delta_analysis_error"] = type(e).__name__
 
         return result

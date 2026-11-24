@@ -4,6 +4,8 @@ Run: python app.py
 Open: http://localhost:8000
 """
 
+import logging
+import secrets
 import sys
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from shared.models import ScenarioConfig
 from shared.config import Config
 
 app = FastAPI(title="ClinEQ MVP1 Demo")
+logger = logging.getLogger(__name__)
 
 # Load all scenario JSONs at startup
 SCENARIOS: dict[str, ScenarioConfig] = {}
@@ -78,6 +81,21 @@ async def list_scenarios():
     # Sort: control first, then alphabetical
     scenarios.sort(key=lambda x: (0 if x["category"] == "control" else 1, x["title"]))
     return {"scenarios": scenarios}
+
+
+def _processing_error(exc: Exception) -> dict:
+    """Client-safe error: a fixed message plus an opaque id.
+
+    Exception text can quote student or model words, so it is never sent or
+    logged; the server log has only the id and the exception class.
+    """
+    error_id = secrets.token_hex(6)
+    logger.error("Processing error %s: %s", error_id, type(exc).__name__)
+    return {
+        "type": "error",
+        "message": f"Processing error (reference {error_id}). Please try again.",
+        "error_id": error_id,
+    }
 
 
 # Active sessions keyed by websocket connection
@@ -192,10 +210,7 @@ async def chat_websocket(websocket: WebSocket, scenario_id: str):
                         break
 
                 except Exception as e:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Processing error: {str(e)}",
-                    })
+                    await websocket.send_json(_processing_error(e))
 
     except WebSocketDisconnect:
         pass

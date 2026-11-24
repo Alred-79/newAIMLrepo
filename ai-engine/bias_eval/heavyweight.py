@@ -133,7 +133,8 @@ async def evaluate_realtime(
         return HeavyweightResult(
             bias_label=BiasLabel.UNCERTAIN,
             confidence=0.0,
-            reasoning=f"Heavyweight evaluation failed: {str(e)}",
+            # Class name only: exception text can quote the student.
+            reasoning=f"Heavyweight evaluation failed ({type(e).__name__})",
         )
 
 
@@ -162,7 +163,7 @@ async def generate_control_profile(
 
     except Exception as e:
         return {
-            "error": str(e),
+            "error": type(e).__name__,  # class only; text can quote the student
             "total_questions": 0,
             "topics_covered": [],
             "summary": "Control profile generation failed.",
@@ -242,5 +243,6 @@ async def generate_delta_report(
 
     except Exception as e:
         return DeltaAnalysis(
-            overall_summary=f"Delta analysis failed: {str(e)}",
+            # Class name only: exception text can quote the student.
+            overall_summary=f"Delta analysis failed ({type(e).__name__})",
         )

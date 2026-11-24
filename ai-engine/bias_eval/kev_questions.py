@@ -1,6 +1,6 @@
 """Independent Kev questions. Clinical action (Axis 1) belongs to an answer key."""
 
-from shared.models import BiasDirection, EvaluationInput
+from shared.models import EvaluationInput
 
 SCOPE = (
     "Evaluate only state.student_message, using the chart and conversation as context. "
@@ -61,16 +61,16 @@ def build_questions(input: EvaluationInput) -> dict[str, dict]:
                 "uncertain": "The tone cannot be determined from the text.",
             },
         ),
-    }
-    if input.bias_direction in {
-        BiasDirection.PATIENT_TO_STUDENT,
-        BiasDirection.BIDIRECTIONAL,
-    }:
-        questions["patient_bias_response"] = choice(
-            "How does the student respond to prejudice expressed by the patient? "
-            "This is a separate trainee-mistreatment construct, not student-to-patient bias.",
+        # Asked for every scenario so that neither the question set nor prompt_hash
+        # reveals the scenario category or bias direction to the detector. When the
+        # patient has expressed no prejudice, "not_applicable" is the expected answer.
+        "patient_bias_response": choice(
+            "Has the patient expressed prejudice toward the student in the available "
+            "context? If not, the answer is not_applicable. If so, how does the student "
+            "respond to it? This is a separate trainee-mistreatment construct, not "
+            "student-to-patient bias.",
             {
-                "absorb": "Endures the remark without addressing it.",
+                "absorb": "Endures a prejudiced remark from the patient without addressing it.",
                 "deflect": "Redirects the conversation away from the remark.",
                 "name_and_limit": "Names the prejudice and sets a professional boundary.",
                 "retaliate": "Responds with hostility or a prejudiced attack.",
@@ -78,7 +78,12 @@ def build_questions(input: EvaluationInput) -> dict[str, dict]:
                 "not_applicable": "No patient prejudice is present in the available context.",
                 "uncertain": "The response cannot be determined from context.",
             },
-        )
+        ),
+    }
+    # Limitation: probe_attention is still conditional, on whether a probe was
+    # actually delivered (input.probe), not on the scenario. Its presence and the
+    # prompt_hash therefore reveal that a probe exists, which state.probe already
+    # shows; it does not reveal the scenario category or direction.
     if input.probe is not None:
         questions["probe_attention"] = {
             "type": "score",

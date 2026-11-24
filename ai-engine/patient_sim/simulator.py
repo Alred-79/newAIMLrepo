@@ -1,15 +1,19 @@
 """
 ClinEQ — Patient Simulator Orchestrator (Revised)
 
-Three parallel paths:
+Three evaluation paths per turn:
 1. Assembler → patient response (fast, ~500ms)
 2. Lightweight eval → tone/language → System message if biased (fast, ~800ms)
 3. Heavyweight eval → clinical reasoning → System message if biased (slow, ~2-4s, conditional)
 
-None of these influence each other. All three are fire-and-forget.
+Paths 1 and 2 run concurrently and both are awaited before the turn returns.
+Path 3 is not independent: it runs only when HEAVYWEIGHT_ENABLED and either the
+lightweight result requests escalation or a clinical action is detected, and it is
+then awaited too. None of the paths is fire-and-forget.
 """
 
 import asyncio
+import logging
 import time
 
 from shared.models import (
@@ -25,6 +29,8 @@ from bias_eval.lightweight import evaluate_tone
 from bias_eval.routing import should_trigger_reflection_mvp1
 from bias_eval.clinical_keywords import has_clinical_action
 from bias_eval.heavyweight import evaluate_realtime
+
+logger = logging.getLogger(__name__)
 
 
 async def _run_lightweight(input: SimulatorInput) -> tuple[list[str], bool]:
@@ -60,8 +66,11 @@ async def _run_lightweight(input: SimulatorInput) -> tuple[list[str], bool]:
         return messages, should_escalate
 
     except Exception as e:
-        print(f"Lightweight eval error (non-fatal): {e}")
-        return [], False
+        # Log the class only: exception text can contain the student's message.
+        logger.warning("Lightweight eval failed (non-fatal): %s", type(e).__name__)
+        # Kev is a screening lane, so an unexpected failure must escalate rather
+        # than silently pass the turn. The legacy ollama path is unchanged.
+        return [], Config.LIGHTWEIGHT_BACKEND == "kev"
 
 
 async def _run_heavyweight(
@@ -101,7 +110,8 @@ async def _run_heavyweight(
         return []
 
     except Exception as e:
-        print(f"Heavyweight eval error (non-fatal): {e}")
+        # Class name only: the message can quote the student.
+        logger.warning("Heavyweight eval failed (non-fatal): %s", type(e).__name__)
         return []
 
 
