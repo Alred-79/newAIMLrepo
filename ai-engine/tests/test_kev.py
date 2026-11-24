@@ -1776,6 +1776,27 @@ def test_flag_with_arbitrary_tag_text_is_stripped():
 @pytest.mark.parametrize(
     "url,reason",
     [
+        ("http://kev.test", "scheme"),
+        ("https://user@kev.test", "userinfo"),
+        ("https://kev.test/?a", "query"),
+        ("https://kev.test:abc", "port"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_base_url_surfaces_the_specific_reason_end_to_end(
+    turn, monkeypatch, url, reason
+):
+    from bias_eval.kev import _kev_config_error_message
+
+    monkeypatch.setattr(Config, "KEV_BASE_URL", url)
+    result = await classify(turn, lambda _: pytest.fail("must not send"))
+    assert triggers_of(result) == {(None, "invalid_config")}
+    assert result.tier1.error == _kev_config_error_message(reason)
+
+
+@pytest.mark.parametrize(
+    "url,reason",
+    [
         ("https://kev.test/?a", "query"),
         ("https://kev.test/#a", "fragment"),
         ("https://user@kev.test", "userinfo"),
@@ -1784,6 +1805,12 @@ def test_flag_with_arbitrary_tag_text_is_stripped():
         ("ftp://kev.test", "scheme"),
         ("https://kev.test:0/", "port"),
         ("", "malformed"),
+        ("http://kev.test", "scheme"),
+        ("http://kev.test:8009/", "scheme"),
+        ("http://example.com", "scheme"),
+        ("https://kev.test:99999", "port"),
+        ("https://kev.test:abc", "port"),
+        ("https://kev.test/\u00e9", "malformed"),
     ],
 )
 def test_config_error_message_names_the_real_reason(url, reason):
@@ -1822,6 +1849,9 @@ def test_valid_url_has_no_reject_reason():
         "Probe",
         "",
         "a" * 65,
+        "k\ney",  # newline
+        "k\tey",  # tab
+        "k\u202eey",  # right-to-left override
     ],
 )
 @pytest.mark.asyncio

@@ -173,8 +173,10 @@ def kev_base_url_is_allowed(url: object) -> tuple[bool, UrlRejectReason | None]:
     Rejected, so they are reported as a local configuration error rather than
     a Kev failure: empty, relative or malformed URLs; userinfo (user:pass@);
     any query or fragment ("?" or "#", which would swallow the /v1/systemone
-    suffix); any non-ASCII character, and IDNA (xn--) host labels; an empty
-    or zero port; "%" in the host (IPv6 zone ids, percent-encoded hosts); and
+    suffix); non-ASCII characters (in the host: "host"; elsewhere, such as
+    the path: "malformed"), and IDNA (xn--) host labels; an empty, zero,
+    non-numeric or out-of-range port; "%" in the host (IPv6 zone ids,
+    percent-encoded hosts); and
     IPv4-mapped IPv6 addresses such as [::ffff:127.0.0.1] for plain http
     (Python 3.13 calls that loopback, 3.11/3.12 do not; rejected on all).
     The reason is a fixed category, never any part of the URL.
@@ -188,9 +190,14 @@ def kev_base_url_is_allowed(url: object) -> tuple[bool, UrlRejectReason | None]:
         return False, "fragment"
     try:
         parts = urlsplit(url)
-        port = parts.port  # raises ValueError on a malformed port
     except ValueError:
         return False, "malformed"
+    try:
+        port = parts.port
+        bad_port = False
+    except ValueError:  # non-numeric or out-of-range (> 65535) port
+        port = None
+        bad_port = True
     host = parts.hostname
     scheme = parts.scheme.lower()
     if scheme not in ("http", "https"):
@@ -200,10 +207,12 @@ def kev_base_url_is_allowed(url: object) -> tuple[bool, UrlRejectReason | None]:
     # userinfo would be sent as Basic auth, replacing the Bearer key.
     if "@" in parts.netloc:
         return False, "userinfo"
-    if not url.isascii() or "%" in parts.netloc:
+    if not parts.netloc.isascii() or "%" in parts.netloc:
         return False, "host"
-    if port == 0 or (port is None and parts.netloc.endswith(":")):
+    if bad_port or port == 0 or (port is None and parts.netloc.endswith(":")):
         return False, "port"
+    if not url.isascii():  # non-ASCII outside the host (the path)
+        return False, "malformed"
     if any(label.startswith("xn--") for label in host.split(".")):
         return False, "host"
     if scheme == "https" or host == "localhost":
@@ -211,7 +220,9 @@ def kev_base_url_is_allowed(url: object) -> tuple[bool, UrlRejectReason | None]:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return False, "host"
+        # A named host that is not localhost: https returned above, so this is
+        # plain http to a non-loopback host.
+        return False, "scheme"
     if address.version == 6 and address.ipv4_mapped is not None:
         return False, "host"
     if not address.is_loopback:
