@@ -1108,3 +1108,103 @@ def test_flatten_is_linear_on_long_whitespace():
     )
     assert done.returncode == 0, done.stderr[-300:]
     assert float(done.stdout) < 1.0
+
+
+# --- Round 4: compressed responses are refused unread ----------------------
+
+_INFLATED = 4 * 1024 * 1024  # bytes each bomb would inflate to (kept small)
+
+
+def _encoded_bomb(encoding):
+    import gzip
+    import zlib
+
+    raw = b"0" * _INFLATED
+    return {
+        "gzip": lambda: gzip.compress(raw),
+        "gzip, gzip": lambda: gzip.compress(gzip.compress(raw)),
+        "deflate": lambda: zlib.compress(raw),
+        "GZip": lambda: gzip.compress(raw),
+    }[encoding]()
+
+
+async def _peak_bytes(coro_factory):
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        result = await coro_factory()
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return result, peak
+
+
+@pytest.mark.parametrize("injected", [True, False])
+@pytest.mark.parametrize("encoding", ["gzip", "gzip, gzip", "deflate", "GZip"])
+@pytest.mark.asyncio
+async def test_compressed_response_is_refused_before_decoding(
+    turn, monkeypatch, encoding, injected
+):
+    monkeypatch.setattr(Config, "KEV_MAX_RESPONSE_BYTES", 1024 * 1024)
+    body = _encoded_bomb(encoding)
+    assert len(body) < 16 * 1024
+    seen = []
+
+    def handler(request):
+        # The server ignores our Accept-Encoding and compresses anyway.
+        seen.append(request.headers.get("accept-encoding"))
+
+        async def stream():  # streamed, so the mock itself does not decode it
+            yield body
+
+        return httpx.Response(
+            200, content=stream(), headers={"Content-Encoding": encoding}
+        )
+
+    transport = httpx.MockTransport(handler)
+    if injected:
+        factory = lambda: classify(turn, handler)  # noqa: E731
+    else:
+        real_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            "bias_eval.kev.httpx.AsyncClient",
+            lambda **kw: real_client(transport=transport, **kw),
+        )
+        factory = lambda: evaluate_with_kev(turn)  # noqa: E731
+    result, peak = await _peak_bytes(factory)
+    assert seen == ["identity"]
+    assert triggers_of(result) == {(None, "invalid_response")}
+    assert result.tier1.error == "Kev response was compressed; refused unread"
+    assert result.should_escalate
+    assert peak < 512 * 1024, f"peak {peak} bytes: the body was decoded"
+
+
+@pytest.mark.parametrize("encoding", [None, "identity", " Identity "])
+@pytest.mark.asyncio
+async def test_identity_response_is_accepted_and_identity_requested(turn, encoding):
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get("accept-encoding"))
+        headers = {"Content-Encoding": encoding} if encoding else {}
+        raw = json.dumps(response_for(build_questions(turn))).encode()
+        return httpx.Response(200, content=raw, headers=headers)
+
+    result = await classify(turn, handler)
+    assert seen == ["identity"]
+    assert result.tier1.status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_response_cap_counts_raw_streamed_bytes(turn, monkeypatch):
+    raw = json.dumps(response_for(build_questions(turn))).encode()
+    monkeypatch.setattr(Config, "KEV_MAX_RESPONSE_BYTES", len(raw) - 1)
+
+    async def body():
+        for i in range(0, len(raw), 7):
+            yield raw[i : i + 7]
+
+    result = await classify(turn, lambda _: httpx.Response(200, content=body()))
+    assert triggers_of(result) == {(None, "invalid_response")}

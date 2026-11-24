@@ -39,6 +39,21 @@ class _InputTooLong(Exception):
     """The transcript text exceeds KEV_MAX_INPUT_CHARS; nothing is sent to Kev."""
 
 
+class _EncodedResponse(Exception):
+    """Kev sent a Content-Encoding other than identity; the body is never read."""
+
+
+def _is_identity_encoded(response: httpx.Response) -> bool:
+    # Any coding (gzip, deflate, br, stacked "gzip, gzip", or an empty value)
+    # is refused: httpx would inflate it before the byte cap could count it.
+    codings = [
+        coding.strip().lower()
+        for value in response.headers.get_list("content-encoding")
+        for coding in value.split(",")
+    ]
+    return all(coding == "identity" for coding in codings)
+
+
 # Kev renders the state as labelled lines, so a line break inside a message
 # could fake another field (e.g. a "recent_context:" block). Any run containing
 # Every control character or line/paragraph separator becomes a space, then each
@@ -185,7 +200,8 @@ async def evaluate_with_kev(
             url = httpx.URL(Config.KEV_BASE_URL.strip().rstrip("/") + "/v1/systemone")
         except (httpx.InvalidURL, ValueError, TypeError):
             raise _InvalidConfig("KEV_BASE_URL is not a valid URL") from None
-        headers = {"Accept": "application/json"}
+        # Ask for an uncompressed body; a compressed one is refused unread below.
+        headers = {"Accept": "application/json", "Accept-Encoding": "identity"}
         if Config.KEV_API_KEY:
             headers["Authorization"] = f"Bearer {Config.KEV_API_KEY}"
         # Bound the entire operation, not just individual socket reads. No retries
@@ -210,8 +226,11 @@ async def evaluate_with_kev(
                 )
                 response.raise_for_status()
                 received = True
-                # Stream with a cap so an oversized (or decompressed) body is
-                # rejected without being buffered in full.
+                # Decided from the headers alone, before any body byte is read.
+                if not _is_identity_encoded(response):
+                    raise _EncodedResponse
+                # Identity-only, so the streamed bytes are the raw wire bytes: the
+                # cap rejects an oversized body without buffering it in full.
                 chunks, size = [], 0
                 async for chunk in response.aiter_bytes():
                     size += len(chunk)
@@ -232,6 +251,9 @@ async def evaluate_with_kev(
     except _InputTooLong:
         error = "Kev input exceeds KEV_MAX_INPUT_CHARS; not sent"
         error_reason = "input_too_long"
+    except _EncodedResponse:
+        error = "Kev response was compressed; refused unread"
+        error_reason = "invalid_response"
     except _InvalidConfig as exc:
         # Our own fixed messages; they name a setting, never its value.
         error, error_reason = str(exc), "invalid_config"
