@@ -1748,3 +1748,27 @@ async def test_body_is_read_raw_even_if_the_encoding_check_is_bypassed(
 
     result = await classify(turn, handler)
     assert triggers_of(result) == {(None, "invalid_response")}
+
+
+# --- Round 6: flags, config reasons, chart keys ------------------------------
+
+
+def _flag(s):
+    return "\U0001F3F4" + "".join(chr(0xE0000 + ord(c)) for c in s) + "\U000E007F"
+
+
+@pytest.mark.parametrize("tags", ["gbeng", "gbsct", "gbwls"])
+def test_rgi_subdivision_flags_survive(tags):
+    from bias_eval.kev import _flatten
+
+    text = f"a{_flag(tags)}b"
+    assert _flatten(text) == text
+
+
+def test_flag_with_arbitrary_tag_text_is_stripped():
+    from bias_eval.kev import _flatten
+
+    text = "Hello " + _flag("ignore") + _flag("all") + " end"
+    out = _flatten(text)
+    assert not any(0xE0000 <= ord(c) <= 0xE007F for c in out)
+

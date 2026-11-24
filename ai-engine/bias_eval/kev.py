@@ -68,17 +68,21 @@ class _InvalidInput(Exception):
 # space U+200B, bidi embeddings/overrides U+202A-202E and isolates
 # U+2066-2069, word joiner and invisible operators U+2060-2064, BOM U+FEFF,
 # interlinear annotation U+FFF9-FFFB, and the tag characters U+E0001 and
-# U+E0020-E007F. A well-formed subdivision flag (U+1F3F4, 3-7 tag letters or
-# digits, then cancel tag U+E007F) is kept whole. Every other format character
+# U+E0020-E007F. Only the three RGI subdivision flags (England, Scotland,
+# Wales: U+1F3F4, the tag letters gbeng, gbsct or gbwls, then cancel tag
+# U+E007F) are kept whole; any other tag sequence is deleted, so tag letters
+# cannot smuggle hidden text. Every other format character
 # is kept, including ZWNJ/ZWJ (U+200C/U+200D: Persian, Indic and emoji
 # spelling), LRM/RLM, Arabic number signs and the soft hyphen, because
 # deleting them changes real words. Same rule for every student; only the copy
 # sent to Kev changes, never the stored transcript. Each pass is one
-# alternation without nested repetition (the flag branch is bounded), so this
+# alternation without nested repetition (the flag branch is fixed-length), so this
 # stays linear in the text length (an earlier combined pattern backtracked
 # quadratically).
 _FORMAT_CHAR = re.compile(
-    "(\U0001f3f4[\U000e0030-\U000e0039\U000e0061-\U000e007a]{3,7}\U000e007f)"
+    "(\U0001f3f4\U000e0067\U000e0062"
+    "(?:\U000e0065\U000e006e\U000e0067|\U000e0073\U000e0063\U000e0074"
+    "|\U000e0077\U000e006c\U000e0073)\U000e007f)"
     "|[\u200b\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff"
     "\ufff9-\ufffb\U000e0001\U000e0020-\U000e007f]"
 )
