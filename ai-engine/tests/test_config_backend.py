@@ -40,6 +40,7 @@ def load_config(**overrides):
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,  # the assert below reports stderr on failure
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
     return json.loads(proc.stdout.strip().splitlines()[-1])

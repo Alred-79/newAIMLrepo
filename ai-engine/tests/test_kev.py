@@ -576,7 +576,9 @@ def triggers_of(result):
     ],
 )
 @pytest.mark.asyncio
-async def test_review_triggers_name_question_and_choice_reason(turn, name, label, reason):
+async def test_review_triggers_name_question_and_choice_reason(
+    turn, name, label, reason
+):
     body = response_for(build_questions(turn), {name: label})
     result = await classify(turn, lambda _: httpx.Response(200, json=body))
     assert triggers_of(result) == {(name, reason)}
@@ -624,9 +626,18 @@ async def test_no_review_triggers_when_nothing_requests_review(turn):
     "handler,reason",
     [
         (lambda _: httpx.Response(503), "transport_error"),
-        (lambda r: (_ for _ in ()).throw(httpx.ConnectError("x", request=r)), "transport_error"),
-        (lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("x", request=r)), "transport_error"),
-        (lambda _: httpx.Response(200, json={"model": "kev-latest"}), "invalid_response"),
+        (
+            lambda r: (_ for _ in ()).throw(httpx.ConnectError("x", request=r)),
+            "transport_error",
+        ),
+        (
+            lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("x", request=r)),
+            "transport_error",
+        ),
+        (
+            lambda _: httpx.Response(200, json={"model": "kev-latest"}),
+            "invalid_response",
+        ),
         (lambda _: httpx.Response(200, content=b"not json"), "invalid_response"),
     ],
 )
@@ -647,7 +658,12 @@ async def test_invalid_config_is_reported_as_invalid_response(turn, monkeypatch)
 
 @pytest.mark.parametrize(
     "choices",
-    [{}, {"tone": "biased"}, {"attribution": "uncertain"}, {"affective_stance": "cold"}],
+    [
+        {},
+        {"tone": "biased"},
+        {"attribution": "uncertain"},
+        {"affective_stance": "cold"},
+    ],
 )
 @pytest.mark.asyncio
 async def test_escalation_is_explained_by_review_triggers(turn, choices):
